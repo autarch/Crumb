@@ -67,10 +67,9 @@ sub run ($self) {
 }
 
 sub _create_database ($self) {
-    $self->_create_user;
     _run(
-        qw( psql --quiet template0 --command ),
-        'CREATE DATABASE IF NOT EXISTS music_player',
+        qw( psql --quiet template1 --command ),
+        q{CREATE DATABASE music_player LOCALE 'C' ENCODING 'UTF-8' TEMPLATE template0},
     );
     _run(
         qw( psql --quiet music_player --command ),
@@ -121,6 +120,9 @@ user = {USER}
 base_url = https://metabrainz.org/api/musicbrainz/
 token = {TOKEN}
 
+[tables]
+ignore = autoeditor_election,autoeditor_election_vote,edit,edit_area,edit_artist,edit_data,edit_event,edit_instrument,edit_label,edit_note,edit_note_recipient,edit_place,edit_recording,edit_release,edit_release_group,edit_series,edit_url,edit_work,editor,editor_collection,editor_collection_area,editor_collection_artist,editor_collection_collaborator,editor_collection_deleted_entity,editor_collection_event,editor_collection_instrument,editor_collection_label,editor_collection_place,editor_collection_recording,editor_collection_release,editor_collection_release_group,editor_collection_series,editor_collection_type,editor_collection_work,editor_language,editor_oauth_token,editor_preference,editor_subscribe_artist,editor_subscribe_artist_deleted,editor_subscribe_collection,editor_subscribe_editor,editor_subscribe_label,editor_subscribe_label_deleted,editor_subscribe_series,editor_subscribe_series_deleted,editor_watch_artist,editor_watch_preferences,editor_watch_release_group_type,editor_watch_release_status,vote
+
 [schemas]
 musicbrainz = musicbrainz
 cover_art_archive = musicbrainz
@@ -158,9 +160,9 @@ sub _import_data ($self) {
 
 sub _run_post_import_sql {
 
-    # XXX - we need to fix CreateFunctions to s/anyarray/anycompatiblearray/
-    # and s/anyelement/anycompatible/. Not sure how best to do this. For now
-    # I've manually edited my local version.
+    # XXX - For Pg 14, we need to fix CreateFunctions to
+    # s/anyarray/anycompatiblearray/ and s/anyelement/anycompatible/. Not sure
+    # how best to do this. For now I've manually edited my local version.
     my @sql = qw(
         CreateFunctions.sql
         CreateIndexes.sql

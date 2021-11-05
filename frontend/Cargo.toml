@@ -1,0 +1,42 @@
+[package]
+version = "0.1.0"
+name = "frontend"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.18"
+
+[dependencies]
+seed = "~0.8"
+serde = { version = "~1", features = ["derive"] }
+serde_json = { version = "~1" }
+thiserror = "~1"
+typed-builder = "~0.9"
+uuid = { version = "~0.8", features = ["v5"] }
+
+# For making Client a singleton because right now it's very slow to create one
+# (it parses a huge amount of JSON).
+lazy_static = "~1"
+
+# For simulating remote requests
+rand = { version = "~0.8" }
+getrandom =  { version = "~0.2", features = ["js"] }
+fluvio-wasm-timer = "~0.2"
+
+[dependencies.web-sys]
+version = "0.3.45"
+features = [
+  "ScrollToOptions",
+  "Navigator",
+]
+
+[profile.release]
+lto = true
+opt-level = 'z'
+codegen-units = 1
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-Os']

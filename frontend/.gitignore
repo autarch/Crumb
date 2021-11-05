@@ -1,0 +1,12 @@
+
+.idea
+bin
+css_classes.rs
+dist
+node_modules
+pkg
+target
+wasm-pack.log
+!**/.keep
+!src/generated/mod.rs
+src/generated/**

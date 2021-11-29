@@ -44,6 +44,12 @@ has db_owner => (
     default => sub {getlogin},
 );
 
+has db_password => (
+    is       => 'ro',
+    isa      => t('NonEmptyStr'),
+    required => 1,
+);
+
 has _temp_dir => (
     is      => 'ro',
     isa     => t('Dir'),
@@ -69,14 +75,14 @@ sub run ($self) {
 sub _create_database ($self) {
     _run(
         qw( psql --quiet template1 --command ),
-        q{CREATE DATABASE music_player LOCALE 'C' ENCODING 'UTF-8' TEMPLATE template0},
+        q{CREATE DATABASE crumb LOCALE 'C' ENCODING 'UTF-8' TEMPLATE template0},
     );
     _run(
-        qw( psql --quiet music_player --command ),
+        qw( psql --quiet crumb --command ),
         'CREATE EXTENSION cube',
     );
     _run(
-        qw( psql --quiet music_player --command ),
+        qw( psql --quiet crumb --command ),
         'CREATE EXTENSION earthdistance',
     );
 }
@@ -113,8 +119,9 @@ my $config = <<'EOF';
 [database]
 host = 127.0.0.1
 port = 5432
-name = music_player
+name = crumb
 user = {USER}
+password = {PASSWORD}
 
 [musicbrainz]
 base_url = https://metabrainz.org/api/musicbrainz/
@@ -131,6 +138,7 @@ EOF
 
 sub _write_mbslave_config ($self) {
     $config =~ s/\{USER\}/$self->db_owner/e;
+    $config =~ s/\{PASSWORD\}/$self->db_password/e;
     $config =~ s/\{TOKEN\}/$self->token/e;
 
     my $file = $self->_temp_dir->child('mbslave.conf');
@@ -142,28 +150,36 @@ sub _create_schema ($self) {
     say 'Creating schema'
         or die $!;
     run3(
-        [qw( mbslave psql -S )],
+        [qw( python3 /home/autarch/projects/mbdata/mbslave.py psql -S )],
         \'CREATE SCHEMA musicbrainz',
         undef,
         undef,
     );
 
-    _run(qw( mbslave psql -f CreateTables.sql ));
-    _run(qw( mbslave psql -f caa/CreateTables.sql ));
+    $self->_run_sql_file($_) for qw(
+        Extensions.sql
+        CreateCollations.sql
+        CreateTables.sql
+        caa/CreateTables.sql
+    );
 }
 
 sub _import_data ($self) {
     for my $file (@DumpFiles) {
-        _run( qw( mbslave import ), $self->data_dir->child($file) );
+        _run(
+            qw( python3 /home/autarch/projects/mbdata/mbslave.py import ),
+            $self->data_dir->child($file)
+        );
     }
 }
 
-sub _run_post_import_sql {
+sub _run_post_import_sql ($self) {
 
     # XXX - For Pg 14, we need to fix CreateFunctions to
     # s/anyarray/anycompatiblearray/ and s/anyelement/anycompatible/. Not sure
     # how best to do this. For now I've manually edited my local version.
-    my @sql = qw(
+    $self->_run_sql_file($_) for qw(
+        CreateSearchConfiguration.sql
         CreateFunctions.sql
         CreateIndexes.sql
         CreatePrimaryKeys.sql
@@ -172,17 +188,20 @@ sub _run_post_import_sql {
         caa/CreateIndexes.sql
         caa/CreatePrimaryKeys.sql
     );
+}
 
-    for my $sql (@sql) {
-        _run( qw( mbslave psql -s musicbrainz -f ), $sql );
-    }
+sub _run_sql_file ( $self, $file ) {
+    _run(
+        qw( python3 /home/autarch/projects/mbdata/mbslave.py psql -s musicbrainz -f ),
+        $file
+    );
 }
 
 sub _vacuum {
     say 'Vacuuming'
         or die $!;
     run3(
-        [qw( mbslave psql -S )],
+        [qw( python3 /home/autarch/projects/mbdata/mbslave.py psql -S )],
         \'VACUUM ANALYZE',
         undef,
         undef,

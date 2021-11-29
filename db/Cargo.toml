@@ -11,5 +11,5 @@ edition = "2018"
 [dependencies]
 env_logger = "~0.8"
 log = "~0.4"
-sea-orm = "~0.3"
+sea-orm = "~0.4"
 thiserror = "~1"

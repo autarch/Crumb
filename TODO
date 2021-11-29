@@ -1,0 +1,6 @@
+Allow marking tracks as blocked from shuffle playlist - for things like 30s interstitial tracks on concept albums, etc.
+
+Auto playlist by:
+* genre
+* bpm
+* language

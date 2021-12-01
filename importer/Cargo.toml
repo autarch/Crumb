@@ -1,15 +1,27 @@
 [package]
-name = "music-player-importer"
+name = "crumb-importer"
 version = "0.0.1"
 authors = ["Dave Rolsky <autarch@urth.org>"]
 description = "Importer for the music player"
 repository = "https://github.com/houseabsolute/music-player"
 readme = "README.md"
 license = "AGPL-3.0"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-env_logger = "~0.8"
+acoustid = { path = "../acoustid" }
+anyhow = "~1"
+clap = "3.0.0-beta"
+crumb-db = { path = "../db" }
+fern = { version = "~0.6", features = ["colored"] }
 log = "~0.4"
-music-player-db = { version = "0.0.1", path = "../db" }
-thiserror = "~1"
+mime = "~0.3"
+mime-detective = "~1"
+serde = { version = "~1", features = ["derive"] }
+serde_json = "~1"
+sha256 = "~1"
+tokio = { version = "~1", default-features = false, features = ["macros", "rt-multi-thread"] }
+walkdir = "~2"
+
+# chromaprint = "~0.1"
+# minimp3 = "~0.5"

@@ -1,6 +1,9 @@
 [workspace]
 members = [
+    "acoustid",
     "backend",
+    "db",
     "frontend",
+    "importer",
 ]
 resolver = "2"

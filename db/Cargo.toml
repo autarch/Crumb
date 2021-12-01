@@ -1,5 +1,5 @@
 [package]
-name = "music-player-db"
+name = "crumb-db"
 version = "0.0.1"
 authors = ["Dave Rolsky <autarch@urth.org>"]
 description = "Database interface for the music player"
@@ -11,5 +11,6 @@ edition = "2018"
 [dependencies]
 env_logger = "~0.8"
 log = "~0.4"
-sea-orm = "~0.4"
+sqlx = { version = "~0.5", features = [ "runtime-tokio-native-tls" , "postgres" ] }
 thiserror = "~1"
+tokio = { version = "~1", features = ["full"] }

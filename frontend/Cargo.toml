@@ -1,6 +1,10 @@
 [package]
 version = "0.1.0"
 name = "frontend"
+authors = ["Dave Rolsky <autarch@urth.org>"]
+description = "Importer for the music player"
+repository = "https://github.com/houseabsolute/music-player"
+readme = "README.md"
 edition = "2021"
 
 [lib]

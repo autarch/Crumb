@@ -1,0 +1,24 @@
+[package]
+name = "acoustid"
+version = "0.0.1"
+authors = ["Dave Rolsky <autarch@urth.org>"]
+description = "Library for the acoustid API"
+repository = "https://github.com/houseabsolute/music-player"
+readme = "README.md"
+license = "Apache-2.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "~1"
+log = "~0.4"
+reqwest = { version = "~0.11", features = ["gzip", "json", "rustls"] }
+serde = { version = "~1", features = ["derive"] }
+serde_json = "~1"
+sha256 = "~1"
+thiserror = "~1"
+tokio = { version = "~1", default-features = false, features = ["rt-multi-thread"] }
+url = "~2"
+
+[dev-dependencies]
+mockito = "~0.30"
+tokio = { version = "~1", default-features = false, features = ["macros", "rt-multi-thread"] }

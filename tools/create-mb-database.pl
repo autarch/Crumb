@@ -183,6 +183,7 @@ sub _run_post_import_sql ($self) {
         CreateFunctions.sql
         CreateIndexes.sql
         CreatePrimaryKeys.sql
+        CreateFKConstraints.sql
         CreateSlaveIndexes.sql
         CreateViews.sql
         caa/CreateIndexes.sql

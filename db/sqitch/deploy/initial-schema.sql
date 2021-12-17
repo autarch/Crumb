@@ -15,11 +15,11 @@ CREATE DOMAIN non_empty_text AS TEXT
     CHECK ( VALUE != '' );
 
 -- Obviously this isn't a full email regex, but this is good enough for now.
-CREATE DOMAIN email AS TEXT
-    CHECK ( VALUE ~ '\A[^@ \t\r\n]+@[^@ \t\r\n]+\.[^@ \t\r\n]+\z' );
+CREATE DOMAIN email AS CITEXT
+    CHECK ( VALUE ~ E'^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$' );
 
 CREATE DOMAIN storage_uri AS TEXT
-    CHECK ( VALUE ~ '(?:file|https?)://.+' );
+    CHECK ( VALUE ~ E'(?:file|https?)://.+' );
 
 -- 1877 is the year of the first audio recording technology. Year + 1 for
 -- something that someone imports on 12/31 that is a prerelease of something
@@ -39,44 +39,47 @@ CREATE DOMAIN positive_smallint AS SMALLINT
 CREATE DOMAIN positive_int AS INT
     CHECK ( VALUE >= 1 );
 
-CREATE TYPE alias_type AS ENUM ( 'transcripted', 'translated', 'search_hint' );
 CREATE TYPE name_type AS ENUM ( 'original', 'transcripted', 'translated' );
 
 CREATE TABLE "user" (
     user_id  UUID  PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
     email  email  UNIQUE NOT NULL,
     date_format  non_empty_text  NOT NULL DEFAULT '%m-%d-%Y',
-    preferred_alias_order  name_type[]  NOT NULL  DEFAULT ARRAY['translated', 'transcripted', 'original']::name_type[]
+    preferred_name_order  name_type[]  NOT NULL  DEFAULT ARRAY['translated', 'transcripted', 'original']::name_type[]
 );
 
 CREATE TABLE artist (
     artist_id  UUID  PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
-    musicbrainz_id  INTEGER  UNIQUE NULL
+    musicbrainz_artist_id  INTEGER  UNIQUE NULL
         REFERENCES musicbrainz.artist (id) ON UPDATE CASCADE ON DELETE CASCADE,
-    name  non_empty_citext  NOT NULL
+    name  non_empty_citext  NOT NULL,
+    sortable_name  non_empty_citext  NOT NULL,
+    transcripted_name  non_empty_citext  NULL,
+    transcripted_sortable_name  non_empty_citext  NULL,
+    translated_name  non_empty_citext  NULL,
+    translated_sortable_name  non_empty_citext  NULL
 );
 
 CREATE INDEX artist_name ON artist (name);
 
-CREATE TABLE artist_alias (
+CREATE TABLE artist_search_hint (
     artist_id  UUID  NOT NULL
         REFERENCES artist (artist_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    alias_type  alias_type  NOT NULL,
-    alias  non_empty_citext  NOT NULL,
-    sortable_alias  non_empty_citext  NOT NULL,
-    PRIMARY KEY ( artist_id, alias_type, alias ),
-    UNIQUE ( artist_id, alias_type, sortable_alias )
+    hint  non_empty_citext  NOT NULL,
+    PRIMARY KEY ( artist_id, hint )
 );
 
-CREATE INDEX artist_alias_alias ON artist_alias (alias);
+CREATE INDEX artist_search_hint_hint ON artist_search_hint (hint);
 
 CREATE TABLE release (
     release_id  UUID  PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
-    musicbrainz_id  INTEGER  UNIQUE NULL
+    musicbrainz_release_id  INTEGER  UNIQUE NULL
         REFERENCES musicbrainz.release (id) ON UPDATE CASCADE ON DELETE CASCADE,
     primary_artist_id  UUID  NOT NULL
         REFERENCES artist (artist_id) ON UPDATE CASCADE ON DELETE CASCADE,
     title  non_empty_citext  NOT NULL,
+    transcripted_title  non_empty_citext  NULL,
+    translated_title  non_empty_citext  NULL,
     -- The release date is the release of _this_ version of the release.
     release_year  year  NULL,
     release_month  month  NULL,
@@ -91,17 +94,14 @@ CREATE TABLE release (
 CREATE INDEX release_primary_artist_id ON release (primary_artist_id);
 CREATE INDEX release_title ON release (title);
 
-CREATE TABLE release_alias (
+CREATE TABLE release_search_hint (
     release_id  UUID  NOT NULL
         REFERENCES release (release_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    alias_type  alias_type  NOT NULL,
-    alias  non_empty_citext  NOT NULL,
-    sortable_alias  non_empty_citext  NOT NULL,
-    PRIMARY KEY ( release_id, alias_type, alias ),
-    UNIQUE ( release_id, alias_type, sortable_alias )
+    hint  non_empty_citext  NOT NULL,
+    PRIMARY KEY ( release_id, hint )
 );
 
-CREATE INDEX release_alias_alias ON release_alias (alias);
+CREATE INDEX release_search_hint_hint ON release_search_hint (hint);
 
 CREATE TABLE release_artist (
     release_id  UUID  NOT NULL
@@ -113,36 +113,35 @@ CREATE TABLE release_artist (
 
 CREATE TABLE track (
     track_id  UUID  PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
-    musicbrainz_id  INTEGER  UNIQUE NULL
+    musicbrainz_track_id  INTEGER  UNIQUE NULL
         REFERENCES musicbrainz.track (id) ON UPDATE CASCADE ON DELETE CASCADE,
     primary_artist_id  UUID  NOT NULL
         REFERENCES artist (artist_id) ON UPDATE CASCADE ON DELETE CASCADE,
     title  non_empty_citext  NOT NULL,
-    length  positive_smallint  NOT NULL,
+    transcripted_title  non_empty_citext  NULL,
+    translated_title  non_empty_citext  NULL,
+    length  positive_int  NULL,
     storage_uri  storage_uri  NOT NULL
 );
 
 CREATE INDEX track_primary_artist_id ON track (primary_artist_id);
 CREATE INDEX track_title ON track (title);
 
-CREATE TABLE track_alias (
+CREATE TABLE track_search_hint (
     track_id  UUID  NOT NULL
         REFERENCES track (track_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    alias_type  alias_type  NOT NULL,
-    alias  non_empty_citext  NOT NULL,
-    sortable_alias  non_empty_citext  NOT NULL,
-    PRIMARY KEY ( track_id, alias_type, alias ),
-    UNIQUE ( track_id, alias_type, sortable_alias )
+    hint  non_empty_citext  NOT NULL,
+    PRIMARY KEY ( track_id, hint )
 );
 
-CREATE INDEX track_alias_alias ON track_alias (alias);
+CREATE INDEX track_search_hint_hint ON track_search_hint (hint);
 
 CREATE TABLE release_track (
     release_id  UUID  NOT NULL
          REFERENCES release (release_id) ON UPDATE CASCADE ON DELETE CASCADE,
     track_id  UUID  NOT NULL
          REFERENCES track (track_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    track_number  positive_smallint  NOT NULL,
+    position  positive_int  NOT NULL,
     PRIMARY KEY ( release_id, track_id )
 );
 
@@ -156,10 +155,10 @@ CREATE TABLE playlist_track (
          REFERENCES playlist (playlist_id) ON UPDATE CASCADE ON DELETE CASCADE,
     track_id  UUID  NOT NULL
          REFERENCES track (track_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    track_order  positive_int  NOT NULL,
+    position  positive_int  NOT NULL,
     -- This allows a single track to appear more than once on a playlist. Why
     -- not?
-    PRIMARY KEY ( playlist_id, track_id, track_order )
+    PRIMARY KEY ( playlist_id, track_id, position )
 );
 
 CREATE TABLE user_track (

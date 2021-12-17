@@ -1,16 +1,19 @@
-use anyhow::Error;
+// It'd be nice to have a local AcoustID DB, but I spent a few hours looking
+// into this and it seems like the data at data.acoustid.org is not sufficient
+// for building such a DB. There a number of issues in the acoustid-server
+// project about this but there's not been much of a response from the devs. I
+// think they want people to just use the service, so we will.
 use log::debug;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use thiserror::Error;
+use tower::{util::BoxService, Service, ServiceBuilder, ServiceExt};
 use url::Url;
 
-#[cfg(test)]
-use mockito;
-
-#[derive(Debug)]
 pub struct AcoustIDClient {
     key: String,
-    client: reqwest::Client,
+    service: BoxService<reqwest::Request, reqwest::Response, reqwest::Error>,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,8 +46,10 @@ struct Recording {
 
 #[derive(Debug, Error)]
 pub enum AcoustidError {
-    #[error("Error making request error")]
-    RequestError { error: reqwest::Error },
+    #[error(transparent)]
+    URLParseError(#[from] url::ParseError),
+    #[error(transparent)]
+    ReqwestError(#[from] reqwest::Error),
     #[error("Got {status:} status for request")]
     ResponseStatusCodeError { status: reqwest::StatusCode },
     #[error("Got {status:} in response from AcoustID service")]
@@ -57,17 +62,21 @@ pub enum AcoustidError {
 
 impl AcoustIDClient {
     pub fn new(key: impl ToString) -> Self {
+        let service = ServiceBuilder::new()
+            .rate_limit(3, Duration::new(1, 0)) // 3 requests per second
+            .service_fn(|req| Client::new().execute(req))
+            .boxed();
         Self {
             key: key.to_string(),
-            client: reqwest::Client::new(),
+            service,
         }
     }
 
     pub async fn lookup<F: AsRef<str>>(
-        &self,
+        &mut self,
         fingerprint: F,
         duration: impl Into<u64>,
-    ) -> Result<Vec<String>, Error> {
+    ) -> Result<Vec<String>, AcoustidError> {
         let fingerprint = fingerprint.as_ref();
         let duration = duration.into();
 
@@ -80,7 +89,8 @@ impl AcoustIDClient {
         url.set_path("/v2/lookup");
 
         let mut query = Url::parse("http://example.com")?;
-        query.query_pairs_mut()
+        query
+            .query_pairs_mut()
             .append_pair("format", "json")
             .append_pair("client", &self.key)
             .append_pair("duration", &format!("{}", duration))
@@ -88,41 +98,37 @@ impl AcoustIDClient {
             .append_pair("meta", "recordingids");
         let body = query.query().unwrap().to_string();
 
-        let res = self
-            .client
+        let req = Client::new()
             .post(url)
             .body(body)
             .header("Accept-Encoding", "gzip")
             .header("Content-Type", "application/x-www-form-urlencoded")
-            .send()
-            .await?;
+            .build()?;
+
+        let res = (*self.service.ready().await?).call(req).await?;
 
         if res.status() != reqwest::StatusCode::OK {
             return Err(AcoustidError::ResponseStatusCodeError {
                 status: res.status(),
-            }
-            .into());
+            });
         }
 
-        let rb: ResponseBody = res
-            .json()
-            .await
-            .map_err(|e| AcoustidError::RequestError { error: e })?;
+        let rb: ResponseBody = res.json().await?;
         if rb.status != "ok" {
-            return Err(AcoustidError::ServiceStatusNotOkError { status: rb.status }.into());
+            return Err(AcoustidError::ServiceStatusNotOkError { status: rb.status });
         }
 
         let mut results = match rb.results {
             Some(r) => {
-                if r.len() == 0 {
-                    return Err(AcoustidError::NoResultsError.into());
+                if r.is_empty() {
+                    return Err(AcoustidError::NoResultsError);
                 }
                 r
             }
-            None => return Err(AcoustidError::NoResultsError.into()),
+            None => return Err(AcoustidError::NoResultsError),
         };
         if results.iter().any(|r| r.score.is_nan()) {
-            return Err(AcoustidError::ResultScoreIsNan.into());
+            return Err(AcoustidError::ResultScoreIsNan);
         }
         // unwrap is safe because we already checked for NaN
         results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
@@ -144,11 +150,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn response_is_not_ok() {
         let _m = mock("POST", PATH).with_status(401).create();
-        let client = AcoustIDClient::new("invalid".to_string());
+        let mut client = AcoustIDClient::new("invalid".to_string());
         let res = client.lookup("fingerprint", 42 as u64).await;
         assert!(res.is_err());
         assert!(matches!(
-            res.unwrap_err().downcast_ref::<AcoustidError>().unwrap(),
+            res.unwrap_err(),
             AcoustidError::ResponseStatusCodeError {
                 status: reqwest::StatusCode::UNAUTHORIZED
             },
@@ -161,12 +167,12 @@ mod tests {
             .with_status(200)
             .with_body(r#"{"status": "ok", "results": { "foo": "bar" }}"#)
             .create();
-        let client = AcoustIDClient::new("invalid".to_string());
+        let mut client = AcoustIDClient::new("invalid".to_string());
         let res = client.lookup("fingerprint", 42 as u64).await;
         println!("E = {:#?}", res);
         assert!(res.is_err());
-        let err = res.unwrap_err().downcast::<AcoustidError>().unwrap();
-        assert!(matches!(err, AcoustidError::RequestError { error: _ },));
+        let err = res.unwrap_err();
+        assert!(matches!(err, AcoustidError::ReqwestError(_)));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -175,10 +181,10 @@ mod tests {
             .with_status(200)
             .with_body(r#"{"status": "not ok"}"#)
             .create();
-        let client = AcoustIDClient::new("invalid".to_string());
+        let mut client = AcoustIDClient::new("invalid".to_string());
         let res = client.lookup("fingerprint", 42 as u64).await;
         assert!(res.is_err());
-        let err = res.unwrap_err().downcast::<AcoustidError>().unwrap();
+        let err = res.unwrap_err();
         assert!(matches!(
             err,
             AcoustidError::ServiceStatusNotOkError { status: _ },
@@ -195,10 +201,10 @@ mod tests {
             .with_status(200)
             .with_body(r#"{"status": "ok"}"#)
             .create();
-        let client = AcoustIDClient::new("invalid".to_string());
+        let mut client = AcoustIDClient::new("invalid".to_string());
         let res = client.lookup("fingerprint", 42 as u64).await;
         assert!(res.is_err());
-        let err = res.unwrap_err().downcast::<AcoustidError>().unwrap();
+        let err = res.unwrap_err();
         assert!(matches!(err, AcoustidError::NoResultsError));
     }
 
@@ -208,10 +214,10 @@ mod tests {
             .with_status(200)
             .with_body(r#"{"status": "ok", "results": []}"#)
             .create();
-        let client = AcoustIDClient::new("invalid".to_string());
+        let mut client = AcoustIDClient::new("invalid".to_string());
         let res = client.lookup("fingerprint", 42 as u64).await;
         assert!(res.is_err());
-        let err = res.unwrap_err().downcast::<AcoustidError>().unwrap();
+        let err = res.unwrap_err();
         assert!(matches!(err, AcoustidError::NoResultsError));
     }
 
@@ -234,7 +240,7 @@ mod tests {
             }
         "#;
         let _m = mock("POST", PATH).with_status(200).with_body(body).create();
-        let client = AcoustIDClient::new("invalid".to_string());
+        let mut client = AcoustIDClient::new("invalid".to_string());
         let res = client.lookup("fingerprint", 42 as u64).await;
         println!("{:#?}", res);
         assert!(res.is_ok());
@@ -263,7 +269,7 @@ mod tests {
             }
         "#;
         let _m = mock("POST", PATH).with_status(200).with_body(body).create();
-        let client = AcoustIDClient::new("invalid".to_string());
+        let mut client = AcoustIDClient::new("invalid".to_string());
         let res = client.lookup("fingerprint", 42 as u64).await;
         println!("{:#?}", res);
         assert!(res.is_ok());
@@ -304,7 +310,7 @@ mod tests {
             }
         "#;
         let _m = mock("POST", PATH).with_status(200).with_body(body).create();
-        let client = AcoustIDClient::new("invalid".to_string());
+        let mut client = AcoustIDClient::new("invalid".to_string());
         let res = client.lookup("fingerprint", 42 as u64).await;
         println!("{:#?}", res);
         assert!(res.is_ok());

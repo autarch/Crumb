@@ -37,10 +37,10 @@ features = [
   "Navigator",
 ]
 
-[profile.release]
-lto = true
-opt-level = 'z'
-codegen-units = 1
+# [profile.release]
+# lto = true
+# opt-level = 'z'
+# codegen-units = 1
 
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ['-Os']
+# [package.metadata.wasm-pack.profile.release]
+# wasm-opt = ['-Os']

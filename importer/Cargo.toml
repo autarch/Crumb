@@ -14,14 +14,17 @@ anyhow = "~1"
 clap = "3.0.0-beta"
 crumb-db = { path = "../db" }
 fern = { version = "~0.6", features = ["colored"] }
+id3 = "~0.6"
+itertools = "~0.10"
+jwalk = "~0.6"
 log = "~0.4"
 mime = "~0.3"
 mime-detective = "~1"
 serde = { version = "~1", features = ["derive"] }
 serde_json = "~1"
 sha256 = "~1"
-tokio = { version = "~1", default-features = false, features = ["macros", "rt-multi-thread"] }
-walkdir = "~2"
+tokio = { version = "~1", default-features = false, features = ["macros", "rt-multi-thread", "sync"] }
+uuid = { version = "~0.8" }
 
 # chromaprint = "~0.1"
 # minimp3 = "~0.5"

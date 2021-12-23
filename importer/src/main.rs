@@ -1,5 +1,6 @@
 use acoustid::AcoustIDClient;
 use anyhow::{anyhow, Context, Result};
+use blake3::hash;
 use clap::{App, Arg, ArgGroup, ArgMatches};
 use crumb_db::*;
 use fern::colors::{Color, ColoredLevelConfig};
@@ -11,16 +12,13 @@ use log::{debug, error, info};
 use mime::Mime;
 use mime_detective::MimeDetective;
 use serde::Deserialize;
-use sha256::digest_file;
 use std::{
     collections::HashMap,
+    fs,
     path::{Path, PathBuf},
     process,
-    sync::Arc,
 };
-use tokio::sync::Mutex;
 use uuid::Uuid;
-
 
 #[tokio::main]
 async fn main() {
@@ -117,6 +115,8 @@ pub fn init_logger(matches: &ArgMatches) -> Result<(), log::SetLoggerError> {
             ));
         })
         .level(level)
+        // This is very noisy.
+        .level_for("sqlx", log::LevelFilter::Warn)
         .chain(std::io::stderr())
         .apply()
 }
@@ -124,6 +124,7 @@ pub fn init_logger(matches: &ArgMatches) -> Result<(), log::SetLoggerError> {
 struct Importer {
     path: String,
     key: String,
+    magic: magic::Cookie,
     detective: MimeDetective,
 }
 
@@ -132,6 +133,7 @@ struct AudioFileInfo {
     file: PathBuf,
     fingerprint: String,
     track_info: crumb_db::TrackInfo,
+    hash: String,
     mb_album_id: Option<String>,
     mb_artist_id: Option<String>,
     mb_album_artist_id: Option<String>,
@@ -141,10 +143,14 @@ struct AudioFileInfo {
 
 impl Importer {
     pub fn new(matches: &ArgMatches) -> Result<Importer> {
+        let magic_paths = &["/usr/share/file/magic.mgc"];
+        let cookie = magic::Cookie::open(magic::CookieFlags::default())?;
+        cookie.load(magic_paths)?;
         Ok(Importer {
             path: matches.value_of("path").unwrap().to_string(),
             key: matches.value_of("acoustid-key").unwrap().to_string(),
-            detective: MimeDetective::new()?,
+            magic: cookie,
+            detective: MimeDetective::load_databases(magic_paths)?,
         })
     }
 
@@ -166,100 +172,70 @@ impl Importer {
         let db = DB::new("postgres://autarch:autarch@localhost/crumb").await?;
         let user = db.get_or_insert_user("autarch@urth.org").await?;
 
-        // Collect all tracks for an album by using MP3 data.
-        //   Get all matching release groups & release for recording ID based on fingerprint.
-        //   If there's only one release group, use that.
-        //   If there's >1 group, first match the release group name to the MP3 album name.
-        //     If one matches, use that.
-        //     If multiples match, prompt user?
-        //     If none match, match based on track count.
-        //       If one matches, use that.
-        //       If multiples match, prompt user?
-        //       If none match, use MP3 metadata and match to MB again later?
-
-        let now = std::time::Instant::now();
-        let mut albums: Arc<Mutex<HashMap<String, Vec<AudioFileInfo>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-        for e in WalkDir::new(&self.path) {
+        let mut count = 0;
+        for e in WalkDir::new(&self.path).process_read_dir(|_, _, _, children| {
+            if children
+                .iter()
+                .find({
+                    |&c| {
+                        if let Ok(c) = c {
+                            return c.file_name.to_string_lossy().ends_with(".mp3");
+                        }
+                        false
+                    }
+                })
+                .is_some()
+            {
+                for dir_entry in children.iter_mut() {
+                    if let Ok(dir_entry) = dir_entry {
+                        dir_entry.read_children_path = None;
+                    }
+                }
+            }
+        }) {
             let e = e?;
-            let path = e.path();
-            let mime = self.mime_type(&path)?;
-            if !is_audio_file(&mime) {
+            if e.file_type.is_dir() {
+                let files = self.files_to_import(&e.path())?;
+                if !files.is_empty() {
+                    let db = db.clone();
+                    let user_id = user.user_id.clone();
+                    count += import_dir(db, user_id, files).await?;
+                }
+            }
+        }
+
+        Ok(count)
+    }
+
+    fn files_to_import(&self, dir: &Path) -> Result<Vec<PathBuf>> {
+        let mut files: Vec<PathBuf> = vec![];
+        for entry in dir.read_dir()? {
+            let entry = entry?;
+            let path = entry.path();
+            if !entry.file_type()?.is_file() {
+                info!("Skipping {} - not a file", path.display());
+                continue;
+            }
+            if !self.is_audio_file(&path)? {
+                info!("Skipping {} - not an audio file", path.display());
                 continue;
             }
 
-            //let sha256 = digest_file(path)?;
-            let par_albums = Arc::clone(&albums);
-            let info = audio_file_info(&path)?;
-            let mut hm = par_albums.lock().await;
-            if let Some(album) = hm.get_mut(&info.track_info.album) {
-                album.push(info);
-            } else {
-                hm.insert(info.track_info.album.clone(), vec![info]);
-            }
+            info!("Will process {}", path.display());
+            files.push(path);
         }
-        println!("ELAPSED = {}", now.elapsed().as_millis());
-
-        let mut import_count = 0;
-        for album in Arc::try_unwrap(albums)
-            .expect("Could not unwrap Arc around albums")
-            .into_inner()
-            .into_values()
-        {
-            let matches = db
-                .best_matches_for_tracks(
-                    &album
-                        .iter()
-                        .map(|a| &a.track_info)
-                        .collect::<Vec<&TrackInfo>>(),
-                )
-                .await?;
-            println!("{:#?}", matches);
-
-            let status = album_match_status(&album, &matches);
-            import_count += match status {
-                MatchStatus::Perfect => {
-                    self.import_album(
-                        &db,
-                        &user,
-                        &album,
-                        &matches.values().map(|vt| &vt[0]).collect::<Vec<_>>(),
-                    )
-                    .await?
-                }
-                MatchStatus::MultipleReleasesForRecording
-                | MatchStatus::MultipleReleasesForReleaseGroup => {
-                    self.import_album(&db, &user, &album, &pick_best_release(&album, &matches))
-                        .await?
-                }
-                _ => {
-                    debug!("Match status = {:?}", status);
-                    0
-                }
-            };
-
-            // let ids = acoustid
-            //     .lookup(&fp.fingerprint, fp.duration.round() as u64)
-            //     .await?;
-
-            // let uuid = Uuid::parse_str(&ids[0])?;
-            // db.insert_user_track_for_recording_id(&uuid, &user).await?;
-        }
-
-        //let acoustid = AcoustIDClient::new(&self.key);
-
-        Ok(import_count)
+        Ok(files)
     }
 
-    async fn import_album(
-        &self,
-        db: &DB,
-        user: &User,
-        album: &[AudioFileInfo],
-        best_matches: &[&TrackMatch],
-    ) -> Result<usize> {
-        db.insert_user_tracks(user, best_matches).await?;
-        Ok(best_matches.len())
+    fn is_audio_file(&self, path: &Path) -> Result<bool> {
+        let mime = self.mime_type(path)?;
+        match (mime.type_().as_str(), mime.subtype().as_str()) {
+            ("audio", "aac") | ("audio", "flac") | ("audio", "mpeg") | ("audio", "ogg") => Ok(true),
+            // For some reason libmagic is detecting calling some files as
+            // application/octet-stream even though the description it gives
+            // is "Audio file with ID3 version 2.3.0".
+            _ => Ok(self.magic.file(path)?.starts_with("Audio file with ID3")),
+        }
     }
 
     fn mime_type(&self, path: &Path) -> Result<Mime> {
@@ -269,21 +245,15 @@ impl Importer {
     }
 }
 
-fn is_audio_file(mime: &Mime) -> bool {
-    match (mime.type_().as_str(), mime.subtype().as_str()) {
-        ("audio", "aac") | ("audio", "flac") | ("audio", "mpeg") | ("audio", "ogg") => true,
-        _ => false,
-    }
-}
-
 fn audio_file_info(path: &Path) -> Result<AudioFileInfo> {
-    let fp = fingerprint(path)?;
+    //    let fp = fingerprint(path)?;
     let tag = Tag::read_from_path(path)?;
+    let nul = char::from(0);
     // Where are the null bytes coming from in these strings? Is this a bug in
     // the id3 crate or legit bad data in my MP3s?
     Ok(AudioFileInfo {
         file: path.to_owned(),
-        fingerprint: fp.fingerprint,
+        fingerprint: String::new(), //fp.fingerprint,
         track_info: crumb_db::TrackInfo {
             position: tag
                 .track()
@@ -292,17 +262,17 @@ fn audio_file_info(path: &Path) -> Result<AudioFileInfo> {
             title: tag
                 .title()
                 .ok_or_else(|| anyhow!("No title in metadata for `{}`", path.display()))?
-                .trim_matches('\0')
+                .trim_matches(nul)
                 .to_string(),
             album: tag
                 .album()
                 .ok_or_else(|| anyhow!("No album in metadata for `{}`", path.display()))?
-                .trim_matches('\0')
+                .trim_matches(nul)
                 .to_string(),
             artist: tag
                 .artist()
                 .ok_or_else(|| anyhow!("No artist in metadata for `{}`", path.display()))?
-                .trim_matches('\0')
+                .trim_matches(nul)
                 .to_string(),
         },
         mb_album_id: get_optional_tag_content(&tag, "MusicBrainz Album Id"),
@@ -310,16 +280,119 @@ fn audio_file_info(path: &Path) -> Result<AudioFileInfo> {
         mb_album_artist_id: get_optional_tag_content(&tag, "MusicBrainz Album Artist Id"),
         mb_release_group_id: get_optional_tag_content(&tag, "MusicBrainz Release Group Id"),
         mb_track_id: get_optional_tag_content(&tag, "MusicBrainz Release Track Id"),
+        hash: blake3_hash(path)?,
     })
+}
+
+fn blake3_hash(path: &Path) -> Result<String> {
+    let bytes = fs::read(path)?;
+    let hex = hash(&bytes).to_hex();
+    let symlink = PathBuf::from(format!(
+        "/home/autarch/tmp/crumb/{}/{}/{}",
+        &hex[0..1],
+        &hex[0..2],
+        hex
+    ));
+    std::fs::create_dir_all(symlink.parent().unwrap())?;
+    if let Err(e) = std::os::unix::fs::symlink(path, &symlink) {
+        if !matches!(e.kind(), std::io::ErrorKind::AlreadyExists) {
+            return Err(e.into());
+        }
+    }
+    Ok(format!("$blake3${}", hex))
 }
 
 fn get_optional_tag_content(tag: &id3::Tag, description: &str) -> Option<String> {
     for t in tag.extended_texts() {
         if t.description == description {
-            return Some(t.value.clone());
+            return Some(t.value.trim_matches(char::from(0)).to_string());
         }
     }
     None
+}
+
+async fn import_dir(db: DB, user_id: Uuid, files: Vec<PathBuf>) -> Result<usize> {
+    let album: HashMap<i32, AudioFileInfo> = files
+        .iter()
+        .map(|p| {
+            let info = audio_file_info(p)?;
+            Ok((info.track_info.position, info))
+        })
+        .collect::<Result<HashMap<i32, AudioFileInfo>>>()?;
+    if album.is_empty() {
+        return Ok(0);
+    }
+
+    // let ids = acoustid
+    //     .lookup(&fp.fingerprint, fp.duration.round() as u64)
+    //     .await?;
+
+    // let uuid = Uuid::parse_str(&ids[0])?;
+    // db.insert_user_track_for_recording_id(&uuid, &user).await?;
+
+    //let acoustid = AcoustIDClient::new(&self.key);
+
+    let matches = if album.values().all(|a| a.mb_track_id.is_some()) {
+        let gids = album
+            .values()
+            .map(|a| Uuid::parse_str(a.mb_track_id.as_ref().unwrap()).map_err(anyhow::Error::from))
+            .collect::<Result<Vec<_>>>()?;
+        db.match_track_gids(&gids).await?
+    } else {
+        db.best_matches_for_tracks(&album.values().map(|a| &a.track_info).collect::<Vec<_>>())
+            .await?
+    };
+
+    let status = album_match_status(&album, &matches);
+    let import_count = match status {
+        MatchStatus::Perfect => {
+            import_album(
+                db,
+                user_id,
+                &album,
+                &matches.values().map(|vt| &vt[0]).collect::<Vec<_>>(),
+            )
+            .await?
+        }
+        MatchStatus::MultipleReleasesForRecording
+        | MatchStatus::MultipleReleasesForReleaseGroup => {
+            import_album(db, user_id, &album, &pick_best_release(&album, &matches)).await?
+        }
+        _ => {
+            debug!("Match status = {:?}", status);
+            0
+        }
+    };
+
+    Ok(import_count)
+}
+
+async fn import_album(
+    db: DB,
+    user_id: Uuid,
+    album: &HashMap<i32, AudioFileInfo>,
+    best_matches: &[&TrackMatch],
+) -> Result<usize> {
+    info!(
+        "Importing album {} by {}",
+        best_matches[0].track_title, best_matches[0].artist,
+    );
+    let matches_with_hashes = best_matches
+        .iter()
+        .map(|&m| {
+            (
+                m,
+                album
+                    .get(&m.position)
+                    .expect("Could not find track")
+                    .hash
+                    .as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    db.insert_user_tracks(&user_id, &matches_with_hashes)
+        .await?;
+    Ok(best_matches.len())
 }
 
 #[derive(Deserialize)]
@@ -357,18 +430,19 @@ enum MatchStatus {
     PositionMismatch,
     TrackCountMismatch,
     MultipleValidMatches,
+    NoMatches,
 }
 
 fn album_match_status(
-    album: &[AudioFileInfo],
+    album: &HashMap<i32, AudioFileInfo>,
     matches: &HashMap<i32, Vec<TrackMatch>>,
 ) -> MatchStatus {
-    let matched_positions = matches.keys().map(|p| *p).sorted().collect::<Vec<i32>>();
-    let mut album_positions = album
-        .iter()
-        .map(|t| t.track_info.position)
-        .sorted()
-        .collect::<Vec<i32>>();
+    if matches.is_empty() {
+        return MatchStatus::NoMatches;
+    }
+
+    let matched_positions = matches.keys().map(|p| *p).sorted().collect::<Vec<_>>();
+    let album_positions = album.keys().map(|p| *p).sorted().collect::<Vec<_>>();
 
     if album_positions.len() != matched_positions.len() {
         debug!("Number of tracks in album does not match number of tracks matched");
@@ -445,7 +519,7 @@ fn album_match_status(
 }
 
 fn pick_best_release<'a>(
-    album: &[AudioFileInfo],
+    album: &'a HashMap<i32, AudioFileInfo>,
     matches: &'a HashMap<i32, Vec<TrackMatch>>,
 ) -> Vec<&'a TrackMatch> {
     // This turns our matches from a single vec where each value can have 1+
@@ -510,8 +584,13 @@ fn pick_best_release<'a>(
 fn pick_release_based_on_comments<'a>(
     mut releases: HashMap<i32, Vec<&'a TrackMatch>>,
 ) -> Vec<&'a TrackMatch> {
-    let first_tracks = releases.values().map(|r| r[0]).collect::<Vec<_>>();
-    let mut release_id = *releases.keys().next().unwrap();
+    // We sort things so we pick the same ID from multiple options every time.
+    let first_tracks = releases
+        .values()
+        .map(|r| r[0])
+        .sorted_by(|a, b| Ord::cmp(&a.release_id, &b.release_id))
+        .collect::<Vec<_>>();
+    let mut release_id = *releases.keys().sorted().next().unwrap();
     // If all the releases have a comment or none have one then we just
     // use the first index. Otherwise we pick the first index without a
     // comment.

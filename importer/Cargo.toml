@@ -11,6 +11,7 @@ edition = "2021"
 [dependencies]
 acoustid = { path = "../acoustid" }
 anyhow = "~1"
+blake3 = "~1.2"
 clap = "3.0.0-beta"
 crumb-db = { path = "../db" }
 fern = { version = "~0.6", features = ["colored"] }
@@ -18,12 +19,13 @@ id3 = "~0.6"
 itertools = "~0.10"
 jwalk = "~0.6"
 log = "~0.4"
+magic = "~0.12"
 mime = "~0.3"
 mime-detective = "~1"
 serde = { version = "~1", features = ["derive"] }
 serde_json = "~1"
-sha256 = "~1"
-tokio = { version = "~1", default-features = false, features = ["macros", "rt-multi-thread", "sync"] }
+#sha256 = "~1"
+tokio = { version = "~1", default-features = false, features = ["macros", "rt-multi-thread", "tracing"] }
 uuid = { version = "~0.8" }
 
 # chromaprint = "~0.1"

@@ -16,10 +16,10 @@ CREATE DOMAIN non_empty_text AS TEXT
 
 -- Obviously this isn't a full email regex, but this is good enough for now.
 CREATE DOMAIN email AS CITEXT
-    CHECK ( VALUE ~ E'^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$' );
+    CHECK ( VALUE ~ E'^[a-zA-Z0-9.!#$%&''*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$' );
 
-CREATE DOMAIN storage_uri AS TEXT
-    CHECK ( VALUE ~ E'(?:file|https?)://.+' );
+CREATE DOMAIN hash AS TEXT
+    CHECK ( VALUE ~ E'^\\$[a-z0-9_\-]+\\$[0-9a-f]+$' );
 
 -- 1877 is the year of the first audio recording technology. Year + 1 for
 -- something that someone imports on 12/31 that is a prerelease of something
@@ -28,10 +28,10 @@ CREATE DOMAIN year AS SMALLINT
     CHECK ( VALUE >= 1877 AND VALUE <= EXTRACT(YEAR FROM CURRENT_DATE) + 1 );
 
 CREATE DOMAIN month AS SMALLINT
-    CHECK ( VALUE >= 1 AND VALUE < 12 );
+    CHECK ( VALUE >= 1 AND VALUE <= 12 );
 
 CREATE DOMAIN day AS SMALLINT
-    CHECK ( VALUE >= 1 AND VALUE < 31 );
+    CHECK ( VALUE >= 1 AND VALUE <= 31 );
 
 CREATE DOMAIN positive_smallint AS SMALLINT
     CHECK ( VALUE >= 1 );
@@ -80,6 +80,7 @@ CREATE TABLE release (
     title  non_empty_citext  NOT NULL,
     transcripted_title  non_empty_citext  NULL,
     translated_title  non_empty_citext  NULL,
+    comment non_empty_citext NULL,
     -- The release date is the release of _this_ version of the release.
     release_year  year  NULL,
     release_month  month  NULL,
@@ -121,7 +122,7 @@ CREATE TABLE track (
     transcripted_title  non_empty_citext  NULL,
     translated_title  non_empty_citext  NULL,
     length  positive_int  NULL,
-    storage_uri  storage_uri  NOT NULL
+    content_hash  hash  NOT NULL
 );
 
 CREATE INDEX track_primary_artist_id ON track (primary_artist_id);

@@ -9,7 +9,6 @@ license = "AGPL-3.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "~1"
 env_logger = "~0.8"
 futures-util = "~0.3"
 itertools = "~0.10"
@@ -24,7 +23,6 @@ uuid = { version = "~0.8" }
 [dependencies.sqlx]
 version = "~0.5"
 features = [
-    "macros",
     "runtime-tokio-native-tls",
     "postgres",
     "time",

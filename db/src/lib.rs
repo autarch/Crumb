@@ -1,11 +1,13 @@
+pub mod dbtypes;
 mod names;
 
+pub use crate::dbtypes::*;
 use crate::names::*;
 use itertools::Itertools;
 use log::debug;
 use sqlx::{
-    postgres::{PgPool, PgPoolOptions},
-    Postgres, Transaction,
+    postgres::{PgPool, PgPoolOptions, PgRow},
+    Postgres, Row, Transaction,
 };
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -26,90 +28,6 @@ pub type DBResult<T> = Result<T, DBError>;
 #[derive(Clone, Debug)]
 pub struct DB {
     pool: PgPool,
-}
-
-#[derive(Debug, sqlx::Type)]
-#[sqlx(type_name = "name_type", rename_all = "snake_case")]
-pub enum NameType {
-    Original,
-    Transcripted,
-    Translated,
-}
-
-// This wackiness is needed to work around an issue with a plain Vec<EnumType>
-// - see https://github.com/launchbadge/sqlx/pull/1170#issuecomment-817738085.
-#[derive(Debug, sqlx::Decode, sqlx::Encode)]
-pub struct NameTypes(Vec<NameType>);
-
-impl sqlx::Type<sqlx::Postgres> for NameTypes {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("_name_type")
-    }
-}
-
-#[derive(Debug)]
-pub struct TrackInfo {
-    pub position: i32,
-    pub title: String,
-    pub album: String,
-    pub artist: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-pub struct TrackMatch {
-    pub track_id: i32,
-    pub position: i32,
-    pub track_title: String,
-    pub length: Option<i32>,
-    pub release_id: i32,
-    pub release_group_id: i32,
-    release_date: Vec<Option<i16>>,
-    original_release_date: Option<Vec<Option<i16>>>,
-    pub album_title: String,
-    pub release_comment: String,
-    pub artist_id: i32,
-    pub artist: String,
-    pub recording_id: i32,
-    pub recording_gid: Uuid,
-}
-
-#[derive(Debug)]
-pub struct User {
-    pub user_id: Uuid,
-    email: String,
-    date_format: String,
-    preferred_name_order: NameTypes,
-}
-
-#[derive(Debug)]
-pub struct Artist {
-    artist_id: Uuid,
-    musicbrainz_artist_id: Option<i32>,
-    name: String,
-    sortable_name: String,
-}
-
-#[derive(Debug)]
-pub struct Release {
-    release_id: Uuid,
-    musicbrainz_release_id: Option<i32>,
-    title: String,
-    release_year: Option<i16>,
-    release_month: Option<i16>,
-    release_day: Option<i16>,
-    original_year: Option<i16>,
-    original_month: Option<i16>,
-    original_day: Option<i16>,
-}
-
-#[derive(Debug)]
-pub struct Track {
-    track_id: Uuid,
-    musicbrainz_id: Option<i32>,
-    primary_artist_id: Uuid,
-    title: String,
-    length: i16,
-    storage_uri: String,
 }
 
 const TRACK_MATCH_SELECT: &str = r#"
@@ -163,6 +81,7 @@ SELECT DISTINCT
        ) as od ) AS "original_release_date",
        a.id AS "artist_id",
        a.name AS "artist",
+       at.name AS "artist_type",
        rec.id AS "recording_id",
        rec.gid AS "recording_gid"
   FROM musicbrainz.track AS t
@@ -176,6 +95,7 @@ SELECT DISTINCT
   JOIN musicbrainz.artist_credit_name AS acn ON ac.id = acn.artist_credit
   JOIN musicbrainz.artist AS a ON acn.artist = a.id
   LEFT OUTER JOIN musicbrainz.artist_alias AS aa ON a.id = aa.artist
+  LEFT OUTER JOIN musicbrainz.artist_type AS at ON a.type = at.id
   JOIN musicbrainz.recording AS rec ON t.recording = rec.id
 "#;
 
@@ -190,37 +110,35 @@ impl DB {
     }
 
     pub async fn get_or_insert_user<E: AsRef<str>>(&self, email: E) -> DBResult<User> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
                 SELECT user_id,
-                       email AS "email!: String",
+                       email,
                        date_format,
-                       preferred_name_order AS "preferred_name_order: _"
+                       preferred_name_order
                   FROM crumb."user"
                  WHERE email = $1
             "#,
-            email.as_ref(),
         )
+        .bind(email.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         if let Some(user) = user {
             return Ok(user);
         }
 
-        sqlx::query_as!(
-            User,
+        sqlx::query_as::<_, User>(
             r#"
                 INSERT INTO crumb."user" (email)
-                VALUES ($1::TEXT::crumb.email)
+                VALUES ($1)
                 RETURNING
                     user_id,
-                    email AS "email!: String",
+                    email,
                     date_format,
-                    preferred_name_order AS "preferred_name_order: _"
+                    preferred_name_order
             "#,
-            email.as_ref(),
         )
+        .bind(email.as_ref())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| e.into())
@@ -320,7 +238,9 @@ impl DB {
         }
 
         let mut tx = self.pool.begin().await?;
-        let artist = self.insert_artist(&mut tx, artist_ids[0]).await?;
+        let artist = self
+            .insert_artist(&mut tx, matches_with_hashes[0].0)
+            .await?;
         let release = self
             .insert_release(
                 &mut tx,
@@ -347,12 +267,15 @@ impl DB {
     async fn insert_artist(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        mb_artist_id: i32,
+        m: &TrackMatch,
     ) -> DBResult<Artist> {
-        let possible_names = self.artist_names_and_aliases(tx, mb_artist_id).await?;
-        let names = names_and_aliases(&possible_names);
+        let possible_names = self.artist_names_and_aliases(tx, m.artist_id).await?;
+        let names = names_and_aliases(
+            &possible_names,
+            matches!(m.artist_type.as_deref(), Some("Person")),
+        );
 
-        debug!("Inserting artist with MB artist id {}:", mb_artist_id);
+        debug!("Inserting artist with MB artist id {}:", m.artist_id);
         debug!(
             "  Name = {} ({})",
             names.name,
@@ -373,8 +296,7 @@ impl DB {
                 .unwrap_or("<no translated sortable name>"),
         );
 
-        let artist = sqlx::query_as!(
-            Artist,
+        let artist = sqlx::query_as::<_, Artist>(
             r#"
                 WITH ins AS (
                     INSERT INTO crumb.artist
@@ -385,49 +307,49 @@ impl DB {
                          )
                     VALUES
                         (
-                            $1, $2::TEXT::crumb.non_empty_citext, $3::TEXT::crumb.non_empty_citext,
-                            $4::TEXT::crumb.non_empty_citext, $5::TEXT::crumb.non_empty_citext,
-                            $6::TEXT::crumb.non_empty_citext, $7::TEXT::crumb.non_empty_citext
+                            $1, $2, $3,
+                            $4, $5,
+                            $6, $7
                         )
                     ON CONFLICT (musicbrainz_artist_id) DO NOTHING
                     RETURNING *
                 )
-                SELECT artist_id AS "artist_id!",
+                SELECT artist_id,
                        musicbrainz_artist_id,
-                       name::TEXT AS "name!",
-                       sortable_name::TEXT AS "sortable_name!"
+                       name,
+                       sortable_name
                   FROM crumb.artist
                  WHERE musicbrainz_artist_id = $1
                 UNION
-                SELECT artist_id AS "artist_id!",
+                SELECT artist_id,
                        musicbrainz_artist_id,
-                       name::TEXT AS "name!",
-                       sortable_name::TEXT AS "sortable_name!"
+                       name,
+                       sortable_name
                   FROM ins
             "#,
-            mb_artist_id,
-            names.name,
-            names.sortable_name.unwrap_or(names.name),
-            names.transcripted_name,
-            names.transcripted_sortable_name,
-            names.translated_name,
-            names.translated_sortable_name,
         )
+        .bind(m.artist_id)
+        .bind(names.name)
+        .bind(names.sortable_name.unwrap_or(names.name))
+        .bind(names.transcripted_name)
+        .bind(names.transcripted_sortable_name)
+        .bind(names.translated_name)
+        .bind(names.translated_sortable_name)
         .fetch_one(&mut *tx)
         .await?;
 
         for alias in names.search_hint_aliases {
-            sqlx::query!(
+            sqlx::query(
                 r#"
                     INSERT INTO crumb.artist_search_hint
                         ( artist_id, hint )
                     VALUES
-                        ( $1, $2::TEXT::crumb.non_empty_citext )
+                        ( $1, $2 )
                     ON CONFLICT ( artist_id, hint ) DO NOTHING
                 "#,
-                artist.artist_id,
-                alias,
             )
+            .bind(artist.artist_id)
+            .bind(alias)
             .execute(&mut *tx)
             .await?;
         }
@@ -442,28 +364,26 @@ impl DB {
     ) -> DBResult<Vec<Name>> {
         let mut mb_artist_names: Vec<Name> = vec![];
         mb_artist_names.push(
-            sqlx::query_as!(
-                MBName,
+            sqlx::query_as::<_, MBName>(
                 r#"
                     SELECT name,
-                           sort_name AS "sort_name: _",
-                           'primary' AS "name_type!",
+                           sort_name,
+                           'primary' AS "name_type",
                            NULL as "locale"
                       FROM musicbrainz.artist
                      WHERE id = $1
                 "#,
-                mb_artist_id,
             )
+            .bind(mb_artist_id)
             .fetch_one(&mut *tx)
             .await?
             .into(),
         );
         mb_artist_names.append(
-            &mut sqlx::query_as!(
-                MBName,
+            &mut sqlx::query_as::<_, MBName>(
                 r#"
                     SELECT aa.name,
-                           aa.sort_name AS "sort_name: _",
+                           aa.sort_name,
                            CASE
                                WHEN aa.primary_for_locale THEN
                                     'primary'
@@ -474,15 +394,15 @@ impl DB {
                                -- This happens if the alias has no type
                                ELSE
                                    'alias'
-                           END AS "name_type!",
+                           END AS "name_type",
                            aa.locale
                       FROM musicbrainz.artist_alias AS aa
                       LEFT OUTER JOIN musicbrainz.artist_alias_type AS aat ON aa.type = aat.id
                      WHERE aa.artist = $1
                        AND aat.name != 'Legal name'
                 "#,
-                mb_artist_id,
             )
+            .bind(mb_artist_id)
             .fetch_all(&mut *tx)
             .await?
             .into_iter()
@@ -490,19 +410,18 @@ impl DB {
             .collect(),
         );
         mb_artist_names.append(
-            &mut sqlx::query_as!(
-                MBName,
+            &mut sqlx::query_as::<_, MBName>(
                 r#"
-                    SELECT acn.name AS "name!",
+                    SELECT acn.name,
                            NULL AS "sort_name",
-                           'alias' AS "name_type!",
+                           'alias' AS "name_type",
                            NULL AS "locale"
                       FROM musicbrainz.artist AS a
                       JOIN musicbrainz.artist_credit_name AS acn ON a.id = acn.artist
                      WHERE a.id = $1
                 "#,
-                mb_artist_id,
             )
+            .bind(mb_artist_id)
             .fetch_all(&mut *tx)
             .await?
             .into_iter()
@@ -546,7 +465,7 @@ impl DB {
         let possible_names = self
             .release_names_and_aliases_with_siblings(tx, matches[0].release_id, matches)
             .await?;
-        let names = names_and_aliases(&possible_names);
+        let names = names_and_aliases(&possible_names, false);
         debug!(
             "Inserting release with MB release id {}:",
             matches[0].release_id
@@ -561,8 +480,7 @@ impl DB {
             names.translated_name.unwrap_or("<no translated name>"),
         );
 
-        let release = sqlx::query_as!(
-            Release,
+        let release = sqlx::query_as::<_, Release>(
             r#"
                 WITH ins AS (
                     INSERT INTO crumb.release
@@ -575,18 +493,18 @@ impl DB {
                         )
                     VALUES
                         (
-                             $1, $2, $3::TEXT::crumb.non_empty_citext,
-                             $4::TEXT::crumb.non_empty_citext, $5::TEXT::crumb.non_empty_citext,
-                             $6::TEXT::crumb.non_empty_citext,
+                             $1, $2, $3,
+                             $4, $5,
+                             $6,
                              $7, $8, $9,
                              $10, $11, $12
                         )
                     ON CONFLICT (musicbrainz_release_id) DO NOTHING
                     RETURNING *
                 )
-                SELECT release_id AS "release_id!",
+                SELECT release_id,
                        musicbrainz_release_id,
-                       title::TEXT AS "title!",
+                       title,
                        release_year,
                        release_month,
                        release_day,
@@ -596,9 +514,9 @@ impl DB {
                   FROM crumb.release
                  WHERE musicbrainz_release_id = $1
                 UNION
-                SELECT release_id AS "release_id!",
+                SELECT release_id,
                        musicbrainz_release_id,
-                       title::TEXT AS "title!",
+                       title,
                        release_year,
                        release_month,
                        release_day,
@@ -607,47 +525,53 @@ impl DB {
                        original_day
                   FROM ins
             "#,
-            matches[0].release_id,
-            primary_artist_id,
-            names.name,
-            names.transcripted_name,
-            names.translated_name,
-            if matches[0].release_comment.is_empty() {
-                None
-            } else {
-                Some(&matches[0].release_comment)
-            },
-            matches[0].release_date.get(0) as _,
-            matches[0].release_date.get(1) as _,
-            matches[0].release_date.get(2) as _,
+        )
+        .bind(matches[0].release_id)
+        .bind(primary_artist_id)
+        .bind(names.name)
+        .bind(names.transcripted_name)
+        .bind(names.translated_name)
+        .bind(if matches[0].release_comment.is_empty() {
+            None
+        } else {
+            Some(&matches[0].release_comment)
+        })
+        .bind(matches[0].release_date.get(0))
+        .bind(matches[0].release_date.get(1))
+        .bind(matches[0].release_date.get(2))
+        .bind(
             matches[0]
                 .original_release_date
                 .as_ref()
-                .and_then(|ord| ord.get(0)) as _,
+                .and_then(|ord| ord.get(0)),
+        )
+        .bind(
             matches[0]
                 .original_release_date
                 .as_ref()
-                .and_then(|ord| ord.get(1)) as _,
+                .and_then(|ord| ord.get(1)),
+        )
+        .bind(
             matches[0]
                 .original_release_date
                 .as_ref()
-                .and_then(|ord| ord.get(2)) as _,
+                .and_then(|ord| ord.get(2)),
         )
         .fetch_one(&mut *tx)
         .await?;
 
         for alias in names.search_hint_aliases {
-            sqlx::query!(
+            sqlx::query(
                 r#"
                     INSERT INTO crumb.release_search_hint
                         ( release_id, hint )
                     VALUES
-                        ( $1, $2::TEXT::crumb.non_empty_citext )
+                        ( $1, $2 )
                     ON CONFLICT ( release_id, hint ) DO NOTHING
                 "#,
-                release.release_id,
-                alias,
             )
+            .bind(release.release_id)
+            .bind(alias)
             .execute(&mut *tx)
             .await?;
         }
@@ -690,28 +614,26 @@ impl DB {
     ) -> DBResult<Vec<Name>> {
         let mut mb_release_names: Vec<Name> = vec![];
         mb_release_names.push(
-            sqlx::query_as!(
-                MBName,
+            sqlx::query_as::<_, MBName>(
                 r#"
                     SELECT name,
-                           NULL AS "sort_name: _",
-                           'primary' AS "name_type!",
+                           NULL AS "sort_name",
+                           'primary' AS "name_type",
                            NULL AS "locale"
                       FROM musicbrainz.release
                      WHERE id = $1
                 "#,
-                mb_release_id
             )
+            .bind(mb_release_id)
             .fetch_one(&mut *tx)
             .await?
             .into(),
         );
         mb_release_names.append(
-            &mut sqlx::query_as!(
-                MBName,
+            &mut sqlx::query_as::<_, MBName>(
                 r#"
                     SELECT ra.name,
-                           ra.sort_name AS "sort_name: _",
+                           ra.sort_name,
                            CASE
                                WHEN ra.primary_for_locale THEN
                                     'primary'
@@ -722,15 +644,15 @@ impl DB {
                                -- This happens if the alias has no type
                                ELSE
                                    'alias'
-                           END AS "name_type!",
+                           END AS "name_type",
                            ra.locale
                       FROM musicbrainz.release_alias AS ra
                       LEFT OUTER JOIN musicbrainz.release_alias_type AS rat ON ra.type = rat.id
                      WHERE ra.release = $1
                        AND rat.name != 'Legal name'
                 "#,
-                mb_release_id
             )
+            .bind(mb_release_id)
             .fetch_all(&mut *tx)
             .await?
             .into_iter()
@@ -753,7 +675,7 @@ impl DB {
             .map(|m| m.position)
             .sorted()
             .collect::<Vec<_>>();
-        let sibling_ids = sqlx::query!(
+        let sibling_ids = sqlx::query(
             r#"
                 SELECT r.id
                   FROM musicbrainz.release AS r
@@ -771,15 +693,16 @@ impl DB {
                            ORDER BY t.position
                        ) = $2
             "#,
-            matches[0].release_id,
-            &track_positions,
         )
+        .bind(matches[0].release_id)
+        .bind(&track_positions)
+        .map(|row: PgRow| row.get(0))
         .fetch_all(&mut *tx)
         .await?;
 
         let mut sibling_names: Vec<Name> = vec![];
         for id in sibling_ids {
-            sibling_names.append(&mut self.release_names_and_aliases(tx, id.id).await?);
+            sibling_names.append(&mut self.release_names_and_aliases(tx, id).await?);
         }
 
         Ok(sibling_names)
@@ -794,13 +717,13 @@ impl DB {
         m: &TrackMatch,
         hash: &str,
     ) -> DBResult<()> {
-        sqlx::query!(
+        sqlx::query(
             r#"
                 WITH ins_track AS (
                     INSERT INTO crumb.track
                         ( musicbrainz_track_id, primary_artist_id, title, length, content_hash )
                     VALUES
-                        ( $1, $2, $3::TEXT::crumb.non_empty_citext, $4::int::crumb.positive_int, $5::TEXT::crumb.non_empty_citext )
+                        ( $1, $2, $3, $4::int::crumb.positive_int, $5 )
                     ON CONFLICT (musicbrainz_track_id) DO NOTHING
                     RETURNING *
                 ), new_track AS (
@@ -822,15 +745,15 @@ impl DB {
                 ON CONFLICT ( user_id, track_id ) DO NOTHING
 
             "#,
-            Some(m.track_id),
-            artist_id,
-            m.track_title,
-            m.length,
-            hash,
-            release_id,
-            m.position,
-            user_id,
         )
+        .bind(Some(m.track_id))
+        .bind(artist_id)
+        .bind(&m.track_title)
+        .bind(m.length)
+        .bind(hash)
+        .bind(release_id)
+        .bind(m.position)
+        .bind(user_id)
         .execute(&mut *tx)
         .await?;
 

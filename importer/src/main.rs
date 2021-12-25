@@ -28,11 +28,11 @@ async fn main() {
         eprintln!("Error creating logger: {}", e);
         std::process::exit(126);
     }
-    let u = Importer::new(&matches);
-    let status = match u {
-        Ok(u) => u.run().await,
+    let i = Importer::new(&matches);
+    let status = match i {
+        Ok(i) => i.run().await,
         Err(e) => {
-            debug!("{:#?}", e);
+            debug!("Error = {:#?}", e);
             error!("{}", e);
             127
         }
@@ -161,7 +161,8 @@ impl Importer {
                 0
             }
             Err(e) => {
-                debug!("{:#?}", e);
+                debug!("Error = {:#?}", e);
+                debug!("Backtrace = {:#?}", e.backtrace());
                 error!("{}", e);
                 1
             }

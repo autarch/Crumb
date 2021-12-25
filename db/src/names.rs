@@ -3,7 +3,7 @@ use lazy_regex::regex_is_match;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug)]
+#[derive(Debug, sqlx::FromRow)]
 pub(crate) struct MBName {
     pub(crate) name: String,
     pub(crate) sort_name: Option<String>,
@@ -68,7 +68,7 @@ impl Into<Name> for MBName {
     }
 }
 
-pub(crate) fn names_and_aliases<'n>(possible_names: &'n [Name]) -> Names<'n> {
+pub(crate) fn names_and_aliases<'n>(possible_names: &'n [Name], is_person: bool) -> Names<'n> {
     let (name, sortable_name) = determine_name_and_sortable_name(&possible_names);
     let aliases = determine_aliases(name, &possible_names);
     let (search_hints, rest): (Vec<Alias<'_>>, Vec<Alias<'_>>) = aliases
@@ -79,9 +79,19 @@ pub(crate) fn names_and_aliases<'n>(possible_names: &'n [Name]) -> Names<'n> {
         .partition(|a| matches!(a.alias_type, AliasType::Transcripted));
 
     let mut transcripted_iter = sorted_by_best_alias(transcripted);
-    let transcripted_name = transcripted_iter.next();
+    let mut transcripted_name = transcripted_iter.next();
     let mut translated_iter = sorted_by_best_alias(translated);
-    let translated_name = translated_iter.next();
+    let mut translated_name = translated_iter.next();
+
+    // It doesn't make sense to have a translated name for a person. If the
+    // algorithm thinks it found one but _didn't_ find a transcripted name,
+    // we'll use the translation as the transcription instead.
+    if is_person {
+        if transcripted_name.is_none() && translated_name.is_some() {
+            transcripted_name = translated_name;
+        }
+        translated_name = None;
+    }
 
     Names {
         name,
@@ -530,7 +540,7 @@ mod tests {
     #[test]
     fn names_and_aliases() {
         let possible = tokyo_incidents_names();
-        let names = super::names_and_aliases(&possible);
+        let names = super::names_and_aliases(&possible, false);
         assert_eq!(names.name, "東京事変");
         assert_eq!(names.sortable_name, None);
         assert_eq!(names.transcripted_name, Some("Tokyo Jihen"));
@@ -540,7 +550,7 @@ mod tests {
         assert_eq!(names.search_hint_aliases.len(), 0);
 
         let possible = kenichi_asai_names();
-        let names = super::names_and_aliases(&possible);
+        let names = super::names_and_aliases(&possible, true);
         assert_eq!(names.name, "浅井健一");
         assert_eq!(names.sortable_name, None);
         assert_eq!(names.transcripted_name, Some("Kenichi Asai"));

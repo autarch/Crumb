@@ -10,7 +10,7 @@ edition = "2021"
 
 [dependencies]
 acoustid = { path = "../acoustid" }
-anyhow = "~1"
+anyhow = { version = "~1", features = ["backtrace"] }
 blake3 = "~1.2"
 clap = "3.0.0-beta"
 crumb-db = { path = "../db" }

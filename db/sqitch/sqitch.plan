@@ -3,3 +3,4 @@
 
 initial-schema 2021-10-18T14:53:26Z Dave Rolsky <autarch@urth.org> # Initial version of the schema
 
+functions-and-triggers [initial-schema] 2021-12-29T19:29:53Z Dave Rolsky <autarch@urth.org> # All functions and triggers - rework to add/change/remove

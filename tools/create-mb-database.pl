@@ -161,6 +161,7 @@ sub _create_schema ($self) {
         CreateCollations.sql
         CreateTables.sql
         caa/CreateTables.sql
+        CreateViews.sql
     );
 }
 

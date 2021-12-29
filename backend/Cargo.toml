@@ -1,4 +1,20 @@
 [package]
 version = "0.1.0"
 name = "backend"
+authors = ["Dave Rolsky <autarch@urth.org>"]
+description = "Backend service for the music player"
+repository = "https://github.com/houseabsolute/Crumb"
+readme = "README.md"
+license = "AGPL-3.0"
 edition = "2021"
+
+[dependencies]
+anyhow = { version = "~1", features = ["backtrace"] }
+crumb-db = { path = "../db" }
+crumb-rpc-proto = { path = "../rpc-proto" }
+futures = {version = "~0.3", default-features = false, features = ["alloc"]}
+tokio = { version = "~1.0", features = ["macros", "rt-multi-thread"] }
+tonic = "~0.6"
+tracing = "~0.1"
+tracing-subscriber = "~0.3"
+uuid = "~0.8"

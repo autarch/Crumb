@@ -109,21 +109,12 @@ impl DB {
         })
     }
 
-    pub async fn get_or_insert_user<E: AsRef<str>>(&self, email: E) -> DBResult<User> {
-        let user = sqlx::query_as::<_, User>(
-            r#"
-                SELECT user_id,
-                       email,
-                       date_format,
-                       preferred_name_order
-                  FROM crumb."user"
-                 WHERE email = $1
-            "#,
-        )
-        .bind(email.as_ref())
-        .fetch_optional(&self.pool)
-        .await?;
-        if let Some(user) = user {
+    #[tracing::instrument]
+    pub async fn get_or_insert_user<E: AsRef<str> + std::fmt::Debug>(
+        &self,
+        email: E,
+    ) -> DBResult<User> {
+        if let Some(user) = self.get_user(&email).await? {
             return Ok(user);
         }
 
@@ -144,6 +135,29 @@ impl DB {
         .map_err(|e| e.into())
     }
 
+    #[tracing::instrument]
+    pub async fn get_user<E: AsRef<str> + std::fmt::Debug>(
+        &self,
+        email: E,
+    ) -> DBResult<Option<User>> {
+        let user = sqlx::query_as::<_, User>(
+            r#"
+                SELECT user_id,
+                       email,
+                       date_format,
+                       preferred_name_order
+                  FROM crumb."user"
+                 WHERE email = $1
+            "#,
+        )
+        .bind(email.as_ref())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(user)
+    }
+
+    #[tracing::instrument]
     pub async fn best_matches_for_tracks(
         &self,
         tracks: &[&TrackInfo],
@@ -198,6 +212,7 @@ impl DB {
         Ok(album)
     }
 
+    #[tracing::instrument]
     pub async fn match_track_gids(
         &self,
         track_ids: &[Uuid],
@@ -215,6 +230,7 @@ impl DB {
         Ok(album)
     }
 
+    #[tracing::instrument]
     pub async fn insert_user_tracks(
         &self,
         user_id: &Uuid,
@@ -264,6 +280,7 @@ impl DB {
         Ok(())
     }
 
+    #[tracing::instrument]
     async fn insert_artist(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -357,6 +374,7 @@ impl DB {
         Ok(artist)
     }
 
+    #[tracing::instrument]
     async fn artist_names_and_aliases(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -456,6 +474,7 @@ impl DB {
         Ok(mb_artist_names)
     }
 
+    #[tracing::instrument]
     async fn insert_release(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -579,6 +598,7 @@ impl DB {
         Ok(release)
     }
 
+    #[tracing::instrument]
     async fn release_names_and_aliases_with_siblings(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -607,6 +627,7 @@ impl DB {
         Ok(mb_release_names)
     }
 
+    #[tracing::instrument]
     async fn release_names_and_aliases(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -708,6 +729,7 @@ impl DB {
         Ok(sibling_names)
     }
 
+    #[tracing::instrument]
     async fn insert_user_track(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -758,5 +780,119 @@ impl DB {
         .await?;
 
         Ok(())
+    }
+
+    #[tracing::instrument]
+    pub async fn artists_for_user(&self, user: &User) -> DBResult<Vec<ArtistItem>> {
+        let select = format!(
+            r#"
+                SELECT a.artist_id,
+                       COALESCE({display_order:}) AS display_name,
+                       a.name,
+                       a.sortable_name,
+                       a.transcripted_name,
+                       a.transcripted_sortable_name,
+                       a.translated_name,
+                       a.translated_sortable_name,
+                       COUNT(DISTINCT r.release_id) AS release_count,
+                       COUNT(DISTINCT t.track_id) AS track_count,
+                       crumb.best_cover_image_for_artist(a.artist_id, $1) AS album_cover_uri
+                  FROM crumb.artist AS a
+                  JOIN crumb.release AS r ON a.artist_id = r.primary_artist_id
+                  JOIN crumb.release_track AS rt USING (release_id)
+                  JOIN crumb.track AS t USING (track_id)
+                  JOIN crumb.user_track AS ut USING (track_id)
+                 WHERE ut.user_id = $1
+                GROUP BY a.artist_id
+                ORDER BY COALESCE({sort_order:}) ASC
+            "#,
+            display_order = user.display_order("a", SortableThing::Artist),
+            sort_order = user.sort_order("a", SortableThing::Artist),
+        );
+        sqlx::query_as::<_, ArtistItem>(&select)
+            .bind(&user.user_id)
+            .bind(&user.preferred_name_order)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    pub async fn releases_for_user_by_artist_id(
+        &self,
+        user: &User,
+        artist_id: &Uuid,
+    ) -> DBResult<Vec<ReleaseItem>> {
+        let select = format!(
+            r#"
+                SELECT r.release_id,
+                       r.primary_artist_id,
+                       COALESCE({display_order:}) AS display_title,
+                       r.title,
+                       r.transcripted_title,
+                       r.translated_title,
+                       r.comment,
+                       COUNT(DISTINCT t.track_id) AS track_count,
+                       r.release_year,
+                       r.release_month,
+                       r.release_day,
+                       r.original_year,
+                       r.original_month,
+                       r.original_day,
+                       crumb.release_date_for_release(r) release_date,
+                       crumb.best_cover_image_for_release(mr.id, mr.release_group) AS album_cover_uri
+                  FROM crumb.release AS r
+                  JOIN crumb.release_track AS rt USING (release_id)
+                  JOIN crumb.track AS t USING (track_id)
+                  JOIN crumb.user_track AS ut USING (track_id)
+                  JOIN musicbrainz.release AS mr ON r.musicbrainz_release_id = mr.id
+                 WHERE ut.user_id = $1
+                   AND r.primary_artist_id = $2
+                GROUP BY r.release_id, mr.id
+                ORDER BY release_date ASC
+            "#,
+            display_order = user.display_order("r", SortableThing::Release),
+        );
+        sqlx::query_as::<_, ReleaseItem>(&select)
+            .bind(&user.user_id)
+            .bind(artist_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    #[tracing::instrument]
+    pub async fn tracks_for_user_by_release_id(
+        &self,
+        user: &User,
+        release_id: &Uuid,
+    ) -> DBResult<Vec<ReleaseTrack>> {
+        let select = format!(
+            r#"
+                SELECT t.track_id,
+                       t.primary_artist_id,
+                       COALESCE({display_order:}) AS display_title,
+                       t.title,
+                       t.transcripted_title,
+                       t.translated_title,
+                       t.length,
+                       t.content_hash,
+                       rt.position
+                  FROM crumb.release AS r
+                  JOIN crumb.release_track AS rt USING (release_id)
+                  JOIN crumb.track AS t USING (track_id)
+                  JOIN crumb.user_track AS ut USING (track_id)
+                  JOIN musicbrainz.release AS mr ON r.musicbrainz_release_id = mr.id
+                 WHERE ut.user_id = $1
+                   AND r.release_id = $2
+                ORDER BY rt.position ASC
+            "#,
+            display_order = user.display_order("t", SortableThing::Track),
+        );
+        sqlx::query_as::<_, ReleaseTrack>(&select)
+            .bind(&user.user_id)
+            .bind(release_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
     }
 }

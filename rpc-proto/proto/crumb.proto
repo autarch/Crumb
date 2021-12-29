@@ -1,0 +1,62 @@
+syntax = "proto3";
+package crumb;
+
+message ArtistItem {
+    string artist_id = 1;
+    string display_name = 2;
+    string name = 3;
+    optional string sortable_name = 4;
+    optional string transcripted_name = 5;
+    optional string transcripted_sortable_name = 6;
+    optional string translated_name = 7;
+    optional string translated_sortable_name = 8;
+    uint32 release_count = 9;
+    uint32 track_count = 10;
+    optional string album_cover_uri = 11;
+}
+
+message ReleaseItem {
+    string release_id = 1;
+    string primary_artist_id = 2;
+    string display_title = 3;
+    string title = 4;
+    optional string transcripted_title = 5;
+    optional string translated_title = 6;
+    optional string comment = 7;
+    optional uint32 release_year = 8;
+    optional uint32 release_month = 9;
+    optional uint32 release_day = 10;
+    optional uint32 original_year = 11;
+    optional uint32 original_month = 12;
+    optional uint32 original_day = 13;
+    uint32 track_count = 14;
+    optional string album_cover_uri = 15;
+}
+
+message ReleaseTrack {
+    string track_id = 1;
+    string primary_artist_id = 2;
+    string display_title = 3;
+    string title = 4;
+    optional string transcripted_title = 5;
+    optional string translated_title = 6;
+    optional uint32 length = 9;
+    string track_audio_uri = 10;
+    uint32 position = 11;
+}
+
+message GetArtistsRequest {}
+
+message GetReleasesForArtistRequest {
+    string artist_id = 1;
+}
+
+message GetTracksForReleaseRequest {
+    string release_id = 1;
+}
+
+service Crumb {
+    rpc GetArtists (GetArtistsRequest) returns (stream ArtistItem);
+    rpc GetReleasesForArtist (GetReleasesForArtistRequest) returns (stream ReleaseItem);
+    rpc GetTracksForRelease (GetTracksForReleaseRequest) returns (stream ReleaseTrack);
+}

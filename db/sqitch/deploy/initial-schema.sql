@@ -45,7 +45,8 @@ CREATE TABLE "user" (
     user_id  UUID  PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
     email  email  UNIQUE NOT NULL,
     date_format  non_empty_text  NOT NULL DEFAULT '%m-%d-%Y',
-    preferred_name_order  name_type[]  NOT NULL  DEFAULT ARRAY['translated', 'transcripted', 'original']::name_type[]
+    preferred_name_order  name_type[]  NOT NULL  DEFAULT ARRAY['translated', 'transcripted', 'original']::name_type[],
+    CONSTRAINT preferred_name_order_is_3 CHECK ( ARRAY_LENGTH(preferred_name_order, 1) == 3 )
 );
 
 CREATE TABLE artist (

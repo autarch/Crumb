@@ -3,7 +3,7 @@ name = "crumb-db"
 version = "0.0.1"
 authors = ["Dave Rolsky <autarch@urth.org>"]
 description = "Database interface for the music player"
-repository = "https://github.com/houseabsolute/music-player"
+repository = "https://github.com/houseabsolute/Crumb"
 readme = "README.md"
 license = "AGPL-3.0"
 edition = "2021"
@@ -18,7 +18,8 @@ once_cell = "~1"
 thiserror = "~1"
 time = "~0.2"
 tokio = { version = "~1", features = ["full"] }
-uuid = { version = "~0.8" }
+tracing = "~0.1"
+uuid = "~0.8"
 
 [dependencies.sqlx]
 version = "~0.5"

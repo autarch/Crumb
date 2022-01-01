@@ -13,13 +13,10 @@ mod client;
 mod components;
 mod generated;
 mod icons;
-mod models;
 mod page;
 
-use client::Client;
+use client::{ArtistItem, Client, ReleaseItem, ReleaseTrack};
 use generated::css_classes::C;
-use lazy_static::lazy_static;
-use models::*;
 use seed::{prelude::*, *};
 use std::{cell::RefCell, rc::Rc};
 
@@ -28,12 +25,12 @@ const APP_NAME: &str = "Crumb";
 const IMAGES_PATH: &str = "static/images";
 
 const ARTISTS: &str = "artists";
-const ALBUMS: &str = "albums";
+const RELEASES: &str = "releases";
 const TRACKS: &str = "tracks";
 const QUEUE: &str = "queue";
 
 const ARTIST: &str = "artist";
-// const ALBUM: &str = "album";
+// const RELEASE: &str = "release";
 // const TRACK: &str = "track";
 
 #[wasm_bindgen(start)]
@@ -50,7 +47,7 @@ pub enum Page {
     Home(page::home::Model),
     Artists(page::artists::Model),
     Artist(page::artist::Model),
-    Albums,
+    Releases,
     Tracks,
     Queue(page::queue::Model),
     NotFound,
@@ -66,7 +63,7 @@ impl Page {
             Some(ARTIST) => {
                 Self::Artist(page::artist::init(url, &mut orders.proxy(Msg::ArtistMsg)))
             }
-            //            [ALBUMS] => Self::Albums(page::albums::init(url, &mut orders.proxy(Msg::AlbumsMsg))),
+            //            [RELEASES] => Self::Releases(page::releases::init(url, &mut orders.proxy(Msg::ReleasesMsg))),
             //            [TRACKS] => Self::Tracks(page::tracks::init(url, &mut orders.proxy(Msg::TracksMsg))),
             Some(QUEUE) => Self::Queue(page::queue::init(url, &mut orders.proxy(Msg::QueueMsg))),
             _ => Self::NotFound,
@@ -80,12 +77,12 @@ impl<'a> Urls<'a> {
         self.base_url()
     }
 
-    pub fn albums(self) -> Url {
-        self.base_url().add_path_part(ALBUMS)
+    pub fn releases(self) -> Url {
+        self.base_url().add_path_part(RELEASES)
     }
 
-    pub fn album(self) -> Url {
-        self.base_url().add_path_part(ALBUMS)
+    pub fn release(self) -> Url {
+        self.base_url().add_path_part(RELEASES)
     }
 
     pub fn artists(self) -> Url {
@@ -114,36 +111,39 @@ pub struct Model {
 
 #[derive(Debug)]
 pub struct Queue {
-    tracks: Vec<Track>,
+    tracks: Vec<ReleaseTrack>,
     current_idx: Option<usize>,
-    current_artist: Artist,
-    current_album: Album,
+    current_artist: ArtistItem,
+    current_release: ReleaseItem,
     is_playing: bool,
 }
 
 #[derive(Debug)]
 pub struct QueueItem<'a> {
     position: u32,
-    track: &'a Track,
+    track: &'a ReleaseTrack,
 }
 
 impl Queue {
-    fn new(tracks: Vec<Track>, current_idx: usize, is_playing: bool) -> Self {
-        let client = &OUR_CLIENT;
+    fn new(tracks: Vec<ReleaseTrack>, current_idx: usize, is_playing: bool) -> Self {
+        let client = Client::new();
         let current_track = &tracks[current_idx];
-        let album = client.album_by_id(&current_track.album_id).unwrap().clone();
-        let artist = client.artist_by_id(&album.artist_id).unwrap().clone();
+        let release = client.release_by_id("XXX").unwrap().clone();
+        let artist = client
+            .artist_by_id(&release.primary_artist_id)
+            .unwrap()
+            .clone();
 
         Queue {
             tracks,
             current_idx: Some(current_idx),
             current_artist: artist,
-            current_album: album,
+            current_release: release,
             is_playing,
         }
     }
 
-    fn current_track(&self) -> Option<&Track> {
+    fn current_track(&self) -> Option<&ReleaseTrack> {
         match self.current_idx {
             Some(i) => Some(&self.tracks[i]),
             None => None,
@@ -196,11 +196,14 @@ impl Queue {
     fn set_current_state(&mut self) {
         match self.current_idx {
             Some(i) => {
-                let client = &OUR_CLIENT;
+                let client = Client::new();
                 let current_track = &self.tracks[i];
-                self.current_album = client.album_by_id(&current_track.album_id).unwrap().clone();
+                self.current_release = client
+                    .release_by_id(&current_track.release_id)
+                    .unwrap()
+                    .clone();
                 self.current_artist = client
-                    .artist_by_id(&self.current_album.artist_id)
+                    .artist_by_id(&self.current_release.artist_id)
                     .unwrap()
                     .clone();
             }
@@ -266,7 +269,7 @@ impl Queue {
 pub enum Msg {
     UrlChanged(subs::UrlChanged),
 
-    QueueFetched(Result<Vec<Track>, client::Error>),
+    QueueFetched(Result<Vec<ReleaseTrack>, client::Error>),
 
     ArtistsMsg(page::artists::Msg),
     ArtistMsg(page::artist::Msg),
@@ -305,8 +308,8 @@ impl<T> RemoteData<T> {
 
 fn init(url: Url, orders: &mut impl Orders<Msg>) -> Model {
     orders.subscribe(Msg::UrlChanged);
-    let client = &OUR_CLIENT;
-    orders.perform_cmd(async { Msg::QueueFetched(client.fake_queue().await) });
+    let client = Client::new();
+    orders.perform_cmd(async move { Msg::QueueFetched(client.fake_queue().await) });
 
     Model {
         base_url: url.to_base_url(),
@@ -403,7 +406,7 @@ fn view_main(model: &Model) -> Node<Msg> {
             Page::Home(model) => page::home::view(model).map_msg(Msg::HomeMsg),
             Page::Artists(model) => page::artists::view(model).map_msg(Msg::ArtistsMsg),
             Page::Artist(model) => page::artist::view(model).map_msg(Msg::ArtistMsg),
-            //            Page::Albums(model) => page::albums::view(model),
+            //            Page::Releases(model) => page::releases::view(model),
             //            Page::Tracks(model) => page::tracks::view(model),
             Page::Queue(model) => page::queue::view(model).map_msg(Msg::QueueMsg),
             Page::NotFound => page::not_found::view().map_msg(Msg::NotFoundMsg),
@@ -422,10 +425,6 @@ pub(crate) fn image_src(image: &str) -> String {
 
 pub(crate) fn page_styles() -> Vec<&'static str> {
     vec![C.flex_grow, C.p_4]
-}
-
-lazy_static! {
-    pub static ref OUR_CLIENT: Client = Client::new();
 }
 
 pub(crate) fn maybe_plural(count: usize, noun: &'static str) -> String {

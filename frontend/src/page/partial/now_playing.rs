@@ -1,23 +1,17 @@
-use crate::{
-    components,
-    generated::css_classes::C,
-    icons,
-    models::{Track, TrackId},
-    Queue,
-};
+use crate::{client::ReleaseTrack, components, generated::css_classes::C, icons, Queue};
 use seed::{prelude::*, *};
 use std::cell::Ref;
 
 #[derive(Debug)]
 pub enum Msg {
-    SetNowPlaying(Track),
+    SetNowPlaying(ReleaseTrack),
     TogglePlayPause,
     NextTrack,
     PreviousTrack,
     VolumeChange(Volume),
     ToggleMute,
-    ThumbsUp(TrackId),
-    ThumbsDown(TrackId),
+    ThumbsUp(String),
+    ThumbsDown(String),
 
     ComponentsMsg(components::Msg),
     IconsMsg(icons::Msg),
@@ -67,15 +61,15 @@ fn view_current_track(queue: &Ref<Queue>) -> Node<Msg> {
             None => vec![div![C![C.col_span_5], "Nothing is currently playing."]],
             Some(track) => {
                 vec![
-                    components::album_image(
+                    components::release_image(
                         &queue.current_artist,
-                        &queue.current_album,
+                        &queue.current_release,
                         Some(&[C.h_auto, C.w_16, C.mr_6]),
                     )
                     .map_msg(Msg::ComponentsMsg),
                     div![
                         C![C.col_span_4],
-                        &track.title,
+                        &track.display_title,
                         br![],
                         a![
                             attrs! { At::Href => &queue.current_artist.url },
@@ -83,8 +77,8 @@ fn view_current_track(queue: &Ref<Queue>) -> Node<Msg> {
                         ],
                         " - ",
                         a![
-                            attrs! { At::Href => &queue.current_album.url },
-                            &queue.current_album.title,
+                            attrs! { At::Href => &queue.current_release.url },
+                            &queue.current_release.display_title,
                         ]
                     ],
                 ]

@@ -1,16 +1,14 @@
+use crate::crumb_server::{Crumb, CrumbServer};
 use anyhow::Result;
 use crumb_db::{User, DB};
-use crumb_rpc_proto::crumb::crumb_server::{Crumb, CrumbServer};
-use crumb_rpc_proto::crumb::{
-    ArtistItem, GetArtistsRequest, GetReleasesForArtistRequest, GetTracksForReleaseRequest,
-    ReleaseItem, ReleaseTrack,
-};
 use futures::{stream, Stream};
 use std::{env, pin::Pin};
 use tonic::{transport::Server, Request, Response, Status};
 use tracing::{event, Level};
 use tracing_subscriber;
 use uuid::Uuid;
+
+tonic::include_proto!("crumb");
 
 type GetArtistsResult<T> = Result<Response<T>, Status>;
 type GetArtistsResponseStream = Pin<Box<dyn Stream<Item = Result<ArtistItem, Status>> + Send>>;
@@ -243,7 +241,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     Server::builder()
-        .add_service(CrumbServer::new(greeter))
+        .add_service(CrumbServer::new(greeter).send_gzip().accept_gzip())
         .serve(addr)
         .await?;
 

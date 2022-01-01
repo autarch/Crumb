@@ -5,7 +5,6 @@ members = [
     "db",
     "frontend",
     "importer",
-    "rpc-proto",
 ]
 resolver = "2"
 

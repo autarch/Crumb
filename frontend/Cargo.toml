@@ -14,28 +14,28 @@ crate-type = ["cdylib"]
 wasm-bindgen-test = "0.3.18"
 
 [dependencies]
+# We need a version that works with tonic 0.6 - the released version uses
+# tonic 0.4.3, which isn't compatible with the generated code from tonic-build
+# 0.6.
+grpc-web-client = { version = "~0.1", path = "../../grpc-web-client/grpc-web-client" }
+prost = "~0.9"
 seed = "~0.8"
 serde = { version = "~1", features = ["derive"] }
 serde_json = { version = "~1" }
 thiserror = "~1"
+tonic = { version = "~0.6", default-features = false, features = [ "codegen", "prost" ] }
 typed-builder = "~0.9"
 uuid = { version = "~0.8", features = ["v5"] }
 
-# For making Client a singleton because right now it's very slow to create one
-# (it parses a huge amount of JSON).
-lazy_static = "~1"
-
-# For simulating remote requests
-rand = { version = "~0.8" }
-getrandom =  { version = "~0.2", features = ["js"] }
-fluvio-wasm-timer = "~0.2"
-
 [dependencies.web-sys]
-version = "0.3.45"
+version = "~0.3"
 features = [
-  "ScrollToOptions",
   "Navigator",
+  "ScrollToOptions",
 ]
+
+[build-dependencies]
+tonic-build = { version = "~0.6", default-features = false, features = [ "prost", "rustfmt" ] }
 
 # [profile.release]
 # lto = true

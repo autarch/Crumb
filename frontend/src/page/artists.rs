@@ -1,20 +1,24 @@
-use crate::{generated::css_classes::C, image_src, models::Artist, page_styles, RemoteData};
+use crate::{
+    client::{ArtistItem, Client},
+    generated::css_classes::C,
+    image_src, page_styles, RemoteData,
+};
 use seed::{prelude::*, *};
 
 #[derive(Debug)]
 pub struct Model {
-    artists: RemoteData<Vec<Artist>>,
+    artists: RemoteData<Vec<ArtistItem>>,
 }
 
 #[derive(Debug)]
 pub enum Msg {
-    ArtistsFetched(Result<Vec<Artist>, crate::client::Error>),
+    ArtistsFetched(Result<Vec<ArtistItem>, crate::client::Error>),
 
     LoadingMsg(crate::page::partial::loading::Msg),
 }
 
 pub fn init(_url: Url, orders: &mut impl Orders<Msg>) -> Model {
-    let client = &crate::OUR_CLIENT;
+    let client = Client::new();
     orders.perform_cmd(async { Msg::ArtistsFetched(client.load_artists().await) });
 
     Model {
@@ -39,7 +43,7 @@ pub fn view(model: &Model) -> Node<Msg> {
     }
 }
 
-fn view_artists(artists: &[Artist]) -> Node<Msg> {
+fn view_artists(artists: &[ArtistItem]) -> Node<Msg> {
     section![
         C![page_styles()],
         div![
@@ -49,8 +53,8 @@ fn view_artists(artists: &[Artist]) -> Node<Msg> {
     ]
 }
 
-fn one_artist(artist: &Artist) -> Node<Msg> {
-    let client = &crate::OUR_CLIENT;
+fn one_artist(artist: &ArtistItem) -> Node<Msg> {
+    let client = Client::new();
     div![
         C![C.h_auto, C.w_32, C.md__w_40, C.lg__w_48, C.m_6, C.md__m_8, C.lg__m_10],
         div![
@@ -82,13 +86,13 @@ fn one_artist(artist: &Artist) -> Node<Msg> {
                 &artist.name,
             ],
             br![],
-            crate::maybe_plural(artist.albums.len(), "album"),
+            crate::maybe_plural(artist.releases.len(), "release"),
             br![],
             crate::maybe_plural(
                 artist
-                    .albums
+                    .releases
                     .values()
-                    .map(|album_id| { client.album_by_id(album_id).unwrap().tracks.len() })
+                    .map(|release_id| { client.release_by_id(release_id).unwrap().tracks.len() })
                     .reduce(|a, b| a + b)
                     .unwrap(),
                 "track",

@@ -1,5 +1,6 @@
 use crate::{
-    components::{self, album_image},
+    client::Client,
+    components::{self, release_image},
     generated::css_classes::C,
     icons, page_styles, Queue, QueueItem,
 };
@@ -69,7 +70,7 @@ fn view_populated_queue(queue: Ref<Queue>) -> Node<Msg> {
             div![
                 C![C.flex, C.flex_row, C.h_fit_in_viewport],
                 view_queue_items(&queue),
-                view_current_album_cover(&queue),
+                view_current_release_cover(&queue),
             ],
         ],
     ]
@@ -101,9 +102,9 @@ fn view_queue_items(queue: &Ref<Queue>) -> Node<Msg> {
 }
 
 fn view_queue_item(is_first: bool, item: QueueItem) -> Node<Msg> {
-    let client = &crate::OUR_CLIENT;
-    let album = client.album_by_id(&item.track.album_id).unwrap();
-    let artist = client.artist_by_id(&album.artist_id).unwrap();
+    let client = Client::new();
+    let release = client.release_by_id(&item.track.release_id).unwrap();
+    let artist = client.artist_by_id(&release.artist_id).unwrap();
 
     div![
         C![
@@ -119,14 +120,14 @@ fn view_queue_item(is_first: bool, item: QueueItem) -> Node<Msg> {
             IF!( is_first => C.bg_indigo_100 ),
         ],
         div![C![C.w_8, C.text_xl], item.position,],
-        album_image(artist, album, Some(&[C.h_10, C.w_10, C.mr_4])).map_msg(Msg::ComponentsMsg),
+        release_image(artist, release, Some(&[C.h_10, C.w_10, C.mr_4])).map_msg(Msg::ComponentsMsg),
         div![
             C![C.flex_grow],
-            p![&item.track.title],
+            p![&item.track.display_title],
             p![
                 a![attrs! { At::Href => artist.url }, &artist.name],
                 " - ",
-                a![attrs! { At::Href => album.url }, &album.title]
+                a![attrs! { At::Href => release.url }, &release.display_title]
             ],
         ],
         view_queue_item_icon(
@@ -148,13 +149,13 @@ fn view_queue_item_icon(icon: Node<icons::Msg>) -> Node<Msg> {
     button![C![C.ml_1_p_5], icon.map_msg(Msg::IconsMsg)]
 }
 
-fn view_current_album_cover(queue: &Ref<Queue>) -> Node<Msg> {
+fn view_current_release_cover(queue: &Ref<Queue>) -> Node<Msg> {
     match queue.has_visible_tracks() {
         true => div![
             C![C.flex_shrink, C.w_0, C.hidden, C.lg__block, C.lg__w_3of5],
-            album_image(
+            release_image(
                 &queue.current_artist,
-                &queue.current_album,
+                &queue.current_release,
                 Some(&[C.object_contain, C.h_fit_in_viewport, C.w_full]),
             )
             .map_msg(Msg::ComponentsMsg),

@@ -1,25 +1,30 @@
 use crate::crumb_server::{Crumb, CrumbServer};
 use anyhow::Result;
-use crumb_db::{User, DB};
+use crumb_db::{DBError, SQLXError, User, DB};
 use futures::{stream, Stream};
 use std::{env, pin::Pin};
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{transport::Server, Request, Response, Status as TonicStatus};
 use tracing::{event, Level};
 use tracing_subscriber;
 use uuid::Uuid;
 
-tonic::include_proto!("crumb");
+tonic::include_proto!("crumb.v1");
 
-type GetArtistsResult<T> = Result<Response<T>, Status>;
-type GetArtistsResponseStream = Pin<Box<dyn Stream<Item = Result<ArtistItem, Status>> + Send>>;
+type GetArtistsResult<T> = Result<Response<T>, TonicStatus>;
+type GetArtistsResponseStream =
+    Pin<Box<dyn Stream<Item = Result<ArtistListItem, TonicStatus>> + Send>>;
 
-type GetReleasesForArtistResult<T> = Result<Response<T>, Status>;
+type GetArtistResult = Result<Response<GetArtistResponse>, TonicStatus>;
+
+type GetReleasesForArtistResult<T> = Result<Response<T>, TonicStatus>;
 type GetReleasesForArtistResponseStream =
-    Pin<Box<dyn Stream<Item = Result<ReleaseItem, Status>> + Send>>;
+    Pin<Box<dyn Stream<Item = Result<ReleaseListItem, TonicStatus>> + Send>>;
 
-type GetTracksForReleaseResult<T> = Result<Response<T>, Status>;
+type GetReleaseResult = Result<Response<GetReleaseResponse>, TonicStatus>;
+
+type GetTracksForReleaseResult<T> = Result<Response<T>, TonicStatus>;
 type GetTracksForReleaseResponseStream =
-    Pin<Box<dyn Stream<Item = Result<ReleaseTrack, Status>> + Send>>;
+    Pin<Box<dyn Stream<Item = Result<ReleaseTrack, TonicStatus>> + Send>>;
 
 #[derive(Debug)]
 struct MyCrumb {
@@ -59,12 +64,61 @@ impl Crumb for MyCrumb {
                     error = %e,
                     "error getting artists for user",
                 );
-                Status::internal("Server error")
+                TonicStatus::internal("Server error")
             })?
             .into_iter()
-            .map(|a| Ok(to_rpc_artist_struct(a)))
+            .map(|a| Ok(to_rpc_artist_list_item_struct(a)))
             .collect::<Vec<_>>();
         Ok(Response::new(Box::pin(stream::iter(artists))))
+    }
+
+    #[tracing::instrument]
+    async fn get_artist(&self, req: Request<GetArtistRequest>) -> GetArtistResult {
+        let user = self.get_user().await?;
+        let req_artist_id = req.into_inner().artist_id;
+        let artist_id = Uuid::parse_str(&req_artist_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                artist_id = %req_artist_id,
+                error = %e,
+                "error parsing artist_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        let artist = self.db.artist_for_user(&user, &artist_id).await;
+        match artist {
+            Ok(a) => Ok(Response::new(GetArtistResponse {
+                response_either: Some(get_artist_response::ResponseEither::Artist(
+                    to_rpc_artist_item_struct(a),
+                )),
+            })),
+            Err(e) => {
+                if let DBError::SQLXError(e) = &e {
+                    if matches!(e, SQLXError::RowNotFound) {
+                        return Ok(Response::new(GetArtistResponse {
+                            response_either: Some(get_artist_response::ResponseEither::Error(
+                                Status {
+                                    code: Code::NotFound as i32,
+                                    message: format!(
+                                        "No artist matches the given id - {}",
+                                        artist_id
+                                    ),
+                                    details: vec![],
+                                },
+                            )),
+                        }));
+                    }
+                }
+                event!(
+                    Level::ERROR,
+                    artist_id = %artist_id,
+                    user_id = %user.user_id.to_string(),
+                    error = %e,
+                    "error getting artist for user",
+                );
+                Err(TonicStatus::internal("Server error"))
+            }
+        }
     }
 
     #[tracing::instrument]
@@ -81,7 +135,7 @@ impl Crumb for MyCrumb {
                 error = %e,
                 "error parsing artist_id as UUID",
             );
-            Status::internal("Server error")
+            TonicStatus::internal("Server error")
         })?;
         // XXX - getting a vec from the db using fetch_many the crumb_db
         // package instead of just returning a stream is gross, but attempting
@@ -98,12 +152,61 @@ impl Crumb for MyCrumb {
                     error = %e,
                     "error getting releases for for artist",
                 );
-                Status::internal("Server error")
+                TonicStatus::internal("Server error")
             })?
             .into_iter()
-            .map(|a| Ok(to_rpc_release_struct(a)))
+            .map(|a| Ok(to_rpc_release_list_item_struct(a)))
             .collect::<Vec<_>>();
         Ok(Response::new(Box::pin(stream::iter(releases))))
+    }
+
+    #[tracing::instrument]
+    async fn get_release(&self, req: Request<GetReleaseRequest>) -> GetReleaseResult {
+        let user = self.get_user().await?;
+        let req_release_id = req.into_inner().release_id;
+        let release_id = Uuid::parse_str(&req_release_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                release_id = %req_release_id,
+                error = %e,
+                "error parsing release_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        let release = self.db.release_for_user(&user, &release_id).await;
+        match release {
+            Ok(a) => Ok(Response::new(GetReleaseResponse {
+                response_either: Some(get_release_response::ResponseEither::Release(
+                    to_rpc_release_item_struct(a),
+                )),
+            })),
+            Err(e) => {
+                if let DBError::SQLXError(e) = &e {
+                    if matches!(e, SQLXError::RowNotFound) {
+                        return Ok(Response::new(GetReleaseResponse {
+                            response_either: Some(get_release_response::ResponseEither::Error(
+                                Status {
+                                    code: Code::NotFound as i32,
+                                    message: format!(
+                                        "No release matches the given id - {}",
+                                        release_id
+                                    ),
+                                    details: vec![],
+                                },
+                            )),
+                        }));
+                    }
+                }
+                event!(
+                    Level::ERROR,
+                    release_id = %release_id,
+                    user_id = %user.user_id.to_string(),
+                    error = %e,
+                    "error getting artist for user",
+                );
+                Err(TonicStatus::internal("Server error"))
+            }
+        }
     }
 
     #[tracing::instrument]
@@ -120,7 +223,7 @@ impl Crumb for MyCrumb {
                 error = %e,
                 "error parsing release_id as UUID",
             );
-            Status::internal("Server error")
+            TonicStatus::internal("Server error")
         })?;
         // XXX - getting a vec from the db using fetch_many the crumb_db
         // package instead of just returning a stream is gross, but attempting
@@ -137,7 +240,7 @@ impl Crumb for MyCrumb {
                     error = %e,
                     "error getting tracks for release",
                 );
-                Status::internal("Server error")
+                TonicStatus::internal("Server error")
             })?
             .into_iter()
             .map(|a| Ok(to_rpc_release_track_struct(a)))
@@ -147,13 +250,13 @@ impl Crumb for MyCrumb {
 }
 
 impl MyCrumb {
-    async fn get_user(&self) -> Result<User, Status> {
+    async fn get_user(&self) -> Result<User, TonicStatus> {
         // XXX - need to get this from request somehow
         let email = "autarch@urth.org";
         match self.db.get_user(email).await {
             Ok(Some(user)) => Ok(user),
             Ok(None) => {
-                return Err(Status::unauthenticated(
+                return Err(TonicStatus::unauthenticated(
                     "No user credentials present in request",
                 ))
             }
@@ -164,14 +267,14 @@ impl MyCrumb {
                     error = %e,
                     "error getting user by email",
                 );
-                return Err(Status::internal("Server error"));
+                return Err(TonicStatus::internal("Server error"));
             }
         }
     }
 }
 
-fn to_rpc_artist_struct(a: crumb_db::ArtistItem) -> ArtistItem {
-    ArtistItem {
+fn to_rpc_artist_list_item_struct(a: crumb_db::ArtistListItem) -> ArtistListItem {
+    ArtistListItem {
         artist_id: a.artist_id.to_string(),
         name: a.name.into_string(),
         display_name: a.display_name.into_string(),
@@ -186,8 +289,19 @@ fn to_rpc_artist_struct(a: crumb_db::ArtistItem) -> ArtistItem {
     }
 }
 
-fn to_rpc_release_struct(r: crumb_db::ReleaseItem) -> ReleaseItem {
-    ReleaseItem {
+fn to_rpc_artist_item_struct(a: crumb_db::ArtistItem) -> ArtistItem {
+    ArtistItem {
+        core: Some(to_rpc_artist_list_item_struct(a.core)),
+        releases: a
+            .releases
+            .into_iter()
+            .map(|r| to_rpc_release_list_item_struct(r))
+            .collect::<Vec<_>>(),
+    }
+}
+
+fn to_rpc_release_list_item_struct(r: crumb_db::ReleaseListItem) -> ReleaseListItem {
+    ReleaseListItem {
         release_id: r.release_id.to_string(),
         primary_artist_id: r.primary_artist_id.to_string(),
         title: r.title.into_string(),
@@ -203,6 +317,17 @@ fn to_rpc_release_struct(r: crumb_db::ReleaseItem) -> ReleaseItem {
         original_day: r.original_day.map(|d| d as u32),
         track_count: r.track_count as u32,
         album_cover_uri: r.album_cover_uri,
+    }
+}
+
+fn to_rpc_release_item_struct(r: crumb_db::ReleaseItem) -> ReleaseItem {
+    ReleaseItem {
+        core: Some(to_rpc_release_list_item_struct(r.core)),
+        tracks: r
+            .tracks
+            .into_iter()
+            .map(|t| to_rpc_release_track_struct(t))
+            .collect::<Vec<_>>(),
     }
 }
 
@@ -226,6 +351,7 @@ fn to_rpc_release_track_struct(t: crumb_db::ReleaseTrack) -> ReleaseTrack {
             &hash[0..2],
             hash,
         ),
+        release_id: t.release_id.to_string(),
         position: t.position as u32,
     }
 }
@@ -241,7 +367,10 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     Server::builder()
-        .add_service(CrumbServer::new(greeter).send_gzip().accept_gzip())
+        .accept_http1(true)
+        .add_service(tonic_web::enable(
+            CrumbServer::new(greeter).send_gzip().accept_gzip(),
+        ))
         .serve(addr)
         .await?;
 

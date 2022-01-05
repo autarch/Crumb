@@ -1,5 +1,5 @@
 use crate::{
-    client::{ArtistItem, ReleaseItem},
+    client::{ArtistListItem, ReleaseListItem},
     image_src,
 };
 use seed::{prelude::*, *};
@@ -10,11 +10,11 @@ pub enum Msg {
 }
 
 pub fn release_image(
-    artist: &ArtistItem,
-    release: &ReleaseItem,
+    artist: &ArtistListItem,
+    release: &ReleaseListItem,
     classes: Option<&[&'static str]>,
 ) -> Node<Msg> {
-    let cover_uri = match release.album_cover_uri {
+    let cover_uri = match &release.album_cover_uri {
         Some(c) => c,
         None => return Node::Empty,
     };

@@ -12,18 +12,18 @@ module.exports = (env, argv) => {
   return {
     performance: {
       // Don't break compilation because of WASM file bigger than 244 KB.
-      hints: false
+      hints: false,
     },
     entry: {
       // Bundle root with name `app.js`.
-      app: path.resolve(__dirname, "index.ts")
+      app: path.resolve(__dirname, "index.ts"),
     },
     output: {
       // You can change it to e.g. `/ui/`, but also edit `historyApiFallback` below and `<base href..`> in `index.hbs`.
-      publicPath: '/',
+      publicPath: "/",
       // You can deploy your site from this folder (after build with e.g. `yarn build:release`)
       path: dist,
-      filename: '[name].[contenthash].js'
+      filename: "[name].[contenthash].js",
     },
     devServer: {
       contentBase: dist,
@@ -32,7 +32,7 @@ module.exports = (env, argv) => {
       port: 8000,
       // Route everything to index to support SPA. It should be the same like `publicPath` above.
       historyApiFallback: {
-        index: '/'
+        index: "/",
       },
       noInfo: true,
       stats: "errors-only",
@@ -40,13 +40,10 @@ module.exports = (env, argv) => {
         // Commented to prevent error:
         // `./crate/pkg/index_bg.js 382:14-53   Critical dependency: the request of a dependency is an expression`
         // warnings: true,
-        errors: true
+        errors: true,
       },
       watchOptions: {
-        ignored: [
-          '**/*~',
-          '**/.#*',
-        ],
+        ignored: ["**/*~", "**/.#*"],
       },
     },
     devtool: "eval",
@@ -60,15 +57,15 @@ module.exports = (env, argv) => {
       new CleanWebpackPlugin(),
       // Extract CSS styles into a file.
       new MiniCssExtractPlugin({
-        filename: '[name].[contenthash].css'
+        filename: "[name].[contenthash].css",
       }),
       // Add scripts, css, ... to html template.
       new HtmlWebpackPlugin({
-        template: path.resolve(__dirname, "static/index.hbs")
+        template: path.resolve(__dirname, "static/index.hbs"),
       }),
       // Compile Rust.
       new WasmPackPlugin({
-        crateDirectory: __dirname
+        crateDirectory: __dirname,
       }),
 
       // You can find files from folder `../static` on url `http://my-site.com/static/`.
@@ -77,21 +74,21 @@ module.exports = (env, argv) => {
         patterns: [
           {
             from: "static",
-            to: "static"
+            to: "static",
           },
           {
             from: "favicons",
-            to: ""
-          }
-        ]
+            to: "",
+          },
+        ],
       }),
     ],
     // Webpack try to guess how to resolve imports in this order:
     resolve: {
       extensions: [".ts", ".js", ".wasm"],
       alias: {
-        crate: __dirname
-      }
+        crate: __dirname,
+      },
     },
     module: {
       rules: [
@@ -101,10 +98,10 @@ module.exports = (env, argv) => {
             {
               loader: "handlebars-loader",
               options: {
-                rootRelative: './templates/'
-              }
-            }
-          ]
+                rootRelative: "./templates/",
+              },
+            },
+          ],
         },
         {
           test: /\.(jpg|jpeg|png|woff|woff2|eot|ttf|svg)$/,
@@ -115,10 +112,10 @@ module.exports = (env, argv) => {
                 // Don't copy files to `dist`, we do it through `CopyWebpackPlugin` (see above)
                 // - we only want to resolve urls to these files.
                 emitFile: false,
-                name: "[path][name].[ext]"
-              }
-            }
-          ]
+                name: "[path][name].[ext]",
+              },
+            },
+          ],
         },
         {
           test: /\.ts$/,
@@ -126,11 +123,10 @@ module.exports = (env, argv) => {
             {
               loader: "ts-loader",
               options: {
-                configFile: "tsconfig.css_classes.json"
-              }
-            }
-          ]
-
+                configFile: "tsconfig.css_classes.json",
+              },
+            },
+          ],
         },
         {
           test: /\.css$/,
@@ -142,12 +138,12 @@ module.exports = (env, argv) => {
               options: {
                 postcssOptions: {
                   config: path.resolve(__dirname, "postcss.config.js"),
-                }
+                },
               },
             },
-          ]
-        }
-      ]
-    }
+          ],
+        },
+      ],
+    },
   };
 };

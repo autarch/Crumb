@@ -9,6 +9,7 @@ use sqlx::{
     postgres::{PgPool, PgPoolOptions, PgRow},
     Postgres, Row, Transaction,
 };
+pub use sqlx::Error as SQLXError;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
@@ -783,7 +784,7 @@ impl DB {
     }
 
     #[tracing::instrument]
-    pub async fn artists_for_user(&self, user: &User) -> DBResult<Vec<ArtistItem>> {
+    pub async fn artists_for_user(&self, user: &User) -> DBResult<Vec<ArtistListItem>> {
         let select = format!(
             r#"
                 SELECT a.artist_id,
@@ -809,19 +810,55 @@ impl DB {
             display_order = user.display_order("a", SortableThing::Artist),
             sort_order = user.sort_order("a", SortableThing::Artist),
         );
-        sqlx::query_as::<_, ArtistItem>(&select)
+        sqlx::query_as::<_, ArtistListItem>(&select)
             .bind(&user.user_id)
-            .bind(&user.preferred_name_order)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.into())
+    }
+
+    #[tracing::instrument]
+    pub async fn artist_for_user(&self, user: &User, artist_id: &Uuid) -> DBResult<ArtistItem> {
+        let select = format!(
+            r#"
+                SELECT a.artist_id,
+                       COALESCE({display_order:}) AS display_name,
+                       a.name,
+                       a.sortable_name,
+                       a.transcripted_name,
+                       a.transcripted_sortable_name,
+                       a.translated_name,
+                       a.translated_sortable_name,
+                       COUNT(DISTINCT r.release_id) AS release_count,
+                       COUNT(DISTINCT t.track_id) AS track_count,
+                       crumb.best_cover_image_for_artist(a.artist_id, $1) AS album_cover_uri
+                  FROM crumb.artist AS a
+                  JOIN crumb.release AS r ON a.artist_id = r.primary_artist_id
+                  JOIN crumb.release_track AS rt USING (release_id)
+                  JOIN crumb.track AS t USING (track_id)
+                  JOIN crumb.user_track AS ut USING (track_id)
+                 WHERE ut.user_id = $1
+                   AND a.artist_id = $2
+                GROUP BY a.artist_id
+                ORDER BY COALESCE({sort_order:}) ASC
+            "#,
+            display_order = user.display_order("a", SortableThing::Artist),
+            sort_order = user.sort_order("a", SortableThing::Artist),
+        );
+        let core = sqlx::query_as::<_, ArtistListItem>(&select)
+            .bind(&user.user_id)
+            .bind(artist_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let releases = self.releases_for_user_by_artist_id(user, artist_id).await?;
+        Ok(ArtistItem { core, releases })
     }
 
     pub async fn releases_for_user_by_artist_id(
         &self,
         user: &User,
         artist_id: &Uuid,
-    ) -> DBResult<Vec<ReleaseItem>> {
+    ) -> DBResult<Vec<ReleaseListItem>> {
         let select = format!(
             r#"
                 SELECT r.release_id,
@@ -852,12 +889,53 @@ impl DB {
             "#,
             display_order = user.display_order("r", SortableThing::Release),
         );
-        sqlx::query_as::<_, ReleaseItem>(&select)
+        sqlx::query_as::<_, ReleaseListItem>(&select)
             .bind(&user.user_id)
             .bind(artist_id)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.into())
+    }
+
+    #[tracing::instrument]
+    pub async fn release_for_user(&self, user: &User, release_id: &Uuid) -> DBResult<ReleaseItem> {
+        let select = format!(
+            r#"
+                SELECT r.release_id,
+                       r.primary_artist_id,
+                       COALESCE({display_order:}) AS display_title,
+                       r.title,
+                       r.transcripted_title,
+                       r.translated_title,
+                       r.comment,
+                       COUNT(DISTINCT t.track_id) AS track_count,
+                       r.release_year,
+                       r.release_month,
+                       r.release_day,
+                       r.original_year,
+                       r.original_month,
+                       r.original_day,
+                       crumb.release_date_for_release(r) release_date,
+                       crumb.best_cover_image_for_release(mr.id, mr.release_group) AS album_cover_uri
+                  FROM crumb.release AS r
+                  JOIN crumb.release_track AS rt USING (release_id)
+                  JOIN crumb.track AS t USING (track_id)
+                  JOIN crumb.user_track AS ut USING (track_id)
+                  JOIN musicbrainz.release AS mr ON r.musicbrainz_release_id = mr.id
+                 WHERE ut.user_id = $1
+                   AND r.release_id = $2
+                GROUP BY r.release_id, mr.id
+                ORDER BY release_date ASC
+            "#,
+            display_order = user.display_order("r", SortableThing::Release),
+        );
+        let core = sqlx::query_as::<_, ReleaseListItem>(&select)
+            .bind(&user.user_id)
+            .bind(release_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let tracks = self.tracks_for_user_by_release_id(user, release_id).await?;
+        Ok(ReleaseItem { core, tracks })
     }
 
     #[tracing::instrument]
@@ -876,6 +954,7 @@ impl DB {
                        t.translated_title,
                        t.length,
                        t.content_hash,
+                       rt.release_id,
                        rt.position
                   FROM crumb.release AS r
                   JOIN crumb.release_track AS rt USING (release_id)

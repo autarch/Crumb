@@ -124,9 +124,9 @@ BEGIN
     IF mime_type = 'image/jpeg' THEN
         extension = 'jpg';
     ELSIF mime_type = 'image/png' THEN
-        extension = 'png';
+        extension = 'jpg';
     ELSIF mime_type = 'image/gif' THEN
-        extension = 'gif';
+        extension = 'jpg';
     ELSE
         RETURN NULL;
     END IF;

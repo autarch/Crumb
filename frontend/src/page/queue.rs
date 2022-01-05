@@ -1,8 +1,8 @@
 use crate::{
-    client::Client,
+    client::{get_artist_response, Client},
     components::{self, release_image},
     generated::css_classes::C,
-    icons, page_styles, Queue, QueueItem,
+    icons, page_styles, view_error, Queue, QueueItem,
 };
 use seed::{prelude::*, *};
 use std::{
@@ -102,47 +102,73 @@ fn view_queue_items(queue: &Ref<Queue>) -> Node<Msg> {
 }
 
 fn view_queue_item(is_first: bool, item: QueueItem) -> Node<Msg> {
-    let client = Client::new();
-    let release = client.release_by_id(&item.track.release_id).unwrap();
-    let artist = client.artist_by_id(&release.artist_id).unwrap();
+    // This needs to be redone so data is loaded asynchronously.
+    return Node::Empty;
 
-    div![
-        C![
-            C.flex,
-            C.flex_row,
-            C.items_center,
-            C.p_1,
-            C.border_t,
-            C.last__border_b,
-            C.border_opacity_50,
-            C.border_gray_500,
-            C.text_sm,
-            IF!( is_first => C.bg_indigo_100 ),
-        ],
-        div![C![C.w_8, C.text_xl], item.position,],
-        release_image(artist, release, Some(&[C.h_10, C.w_10, C.mr_4])).map_msg(Msg::ComponentsMsg),
-        div![
-            C![C.flex_grow],
-            p![&item.track.display_title],
-            p![
-                a![attrs! { At::Href => artist.url }, &artist.name],
-                " - ",
-                a![attrs! { At::Href => release.url }, &release.display_title]
-            ],
-        ],
-        view_queue_item_icon(
-            icons::x_circle()
-                .title("Remove from queue")
-                .build()
-                .into_svg()
-        ),
-        view_queue_item_icon(
-            icons::dots_vertical()
-                .title("More actions")
-                .build()
-                .into_svg()
-        ),
-    ]
+    // let client = Client::new();
+    // let release = client.get_release(&item.track.release_id).unwrap();
+    // let response = client
+    //     .get_artist(&release.core.as_ref().unwrap().primary_artist_id)
+    //     .await;
+    // let artist = match response {
+    //     Ok(Some(get_artist_response::ResponseEither::Artist(a))) => a,
+    //     Ok(Some(get_artist_response::ResponseEither::Error(e))) => return view_error(&e),
+    //     Ok(None) => {
+    //         log!("Empty response for GetArtist request!");
+    //         return Node::Empty;
+    //     },
+    //     // XXX - need to do something with error
+    //     Err(_) => return Node::Empty,
+    // };
+
+    // div![
+    //     C![
+    //         C.flex,
+    //         C.flex_row,
+    //         C.items_center,
+    //         C.p_1,
+    //         C.border_t,
+    //         C.last__border_b,
+    //         C.border_opacity_50,
+    //         C.border_gray_500,
+    //         C.text_sm,
+    //         IF!( is_first => C.bg_indigo_100 ),
+    //     ],
+    //     div![C![C.w_8, C.text_xl], item.position,],
+    //     release_image(
+    //         response.core.as_ref().unwrap(),
+    //         release.core.as_ref().unwrap(),
+    //         Some(&[C.h_10, C.w_10, C.mr_4]),
+    //     )
+    //     .map_msg(Msg::ComponentsMsg),
+    //     div![
+    //         C![C.flex_grow],
+    //         p![&item.track.display_title],
+    //         p![
+    //             a![
+    //                 attrs! { At::Href => response.core.as_ref().unwrap().url() },
+    //                 &response.core.as_ref().unwrap().name,
+    //             ],
+    //             " - ",
+    //             a![
+    //                 attrs! { At::Href => release.core.as_ref().unwrap().url() },
+    //                 &release.core.as_ref().unwrap().display_title,
+    //             ]
+    //         ],
+    //     ],
+    //     view_queue_item_icon(
+    //         icons::x_circle()
+    //             .title("Remove from queue")
+    //             .build()
+    //             .into_svg()
+    //     ),
+    //     view_queue_item_icon(
+    //         icons::dots_vertical()
+    //             .title("More actions")
+    //             .build()
+    //             .into_svg()
+    //     ),
+    // ]
 }
 
 fn view_queue_item_icon(icon: Node<icons::Msg>) -> Node<Msg> {
@@ -150,16 +176,18 @@ fn view_queue_item_icon(icon: Node<icons::Msg>) -> Node<Msg> {
 }
 
 fn view_current_release_cover(queue: &Ref<Queue>) -> Node<Msg> {
-    match queue.has_visible_tracks() {
-        true => div![
-            C![C.flex_shrink, C.w_0, C.hidden, C.lg__block, C.lg__w_3of5],
-            release_image(
-                &queue.current_artist,
-                &queue.current_release,
-                Some(&[C.object_contain, C.h_fit_in_viewport, C.w_full]),
-            )
-            .map_msg(Msg::ComponentsMsg),
-        ],
-        false => Node::Empty,
+    if !queue.has_visible_tracks() {
+        return Node::Empty;
     }
+
+    let current = queue.current.as_ref().unwrap();
+    div![
+        C![C.flex_shrink, C.w_0, C.hidden, C.lg__block, C.lg__w_3of5],
+        release_image(
+            current.artist.core.as_ref().unwrap(),
+            current.release.core.as_ref().unwrap(),
+            Some(&[C.object_contain, C.h_fit_in_viewport, C.w_full]),
+        )
+        .map_msg(Msg::ComponentsMsg),
+    ]
 }

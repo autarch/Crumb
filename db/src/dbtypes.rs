@@ -117,7 +117,7 @@ pub struct Release {
 }
 
 #[derive(Debug, FromRow)]
-pub struct ArtistItem {
+pub struct ArtistListItem {
     pub artist_id: Uuid,
     pub display_name: CiText,
     pub name: CiText,
@@ -132,7 +132,13 @@ pub struct ArtistItem {
 }
 
 #[derive(Debug, FromRow)]
-pub struct ReleaseItem {
+pub struct ArtistItem {
+    pub core: ArtistListItem,
+    pub releases: Vec<ReleaseListItem>,
+}
+
+#[derive(Debug, FromRow)]
+pub struct ReleaseListItem {
     pub release_id: Uuid,
     pub primary_artist_id: Uuid,
     pub display_title: CiText,
@@ -151,6 +157,12 @@ pub struct ReleaseItem {
 }
 
 #[derive(Debug, FromRow)]
+pub struct ReleaseItem {
+    pub core: ReleaseListItem,
+    pub tracks: Vec<ReleaseTrack>,
+}
+
+#[derive(Debug, FromRow)]
 pub struct ReleaseTrack {
     pub track_id: Uuid,
     pub primary_artist_id: Uuid,
@@ -161,6 +173,7 @@ pub struct ReleaseTrack {
     pub length: Option<i32>,
     pub content_hash: String,
     pub position: i32,
+    pub release_id: Uuid,
 }
 
 #[derive(Debug)]

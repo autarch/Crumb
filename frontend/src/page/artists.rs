@@ -1,25 +1,26 @@
 use crate::{
-    client::{ArtistItem, Client},
+    album_cover,
+    client::{ArtistListItem, Client},
     generated::css_classes::C,
-    image_src, page_styles, RemoteData,
+    page_styles, RemoteData,
 };
 use seed::{prelude::*, *};
 
 #[derive(Debug)]
 pub struct Model {
-    artists: RemoteData<Vec<ArtistItem>>,
+    artists: RemoteData<Vec<ArtistListItem>>,
 }
 
 #[derive(Debug)]
 pub enum Msg {
-    ArtistsFetched(Result<Vec<ArtistItem>, crate::client::Error>),
-
+    ArtistsFetched(Result<Vec<ArtistListItem>, crate::client::Error>),
     LoadingMsg(crate::page::partial::loading::Msg),
+    DummyMsg,
 }
 
 pub fn init(_url: Url, orders: &mut impl Orders<Msg>) -> Model {
-    let client = Client::new();
-    orders.perform_cmd(async { Msg::ArtistsFetched(client.load_artists().await) });
+    let mut client = Client::new();
+    orders.perform_cmd(async move { Msg::ArtistsFetched(client.get_artists().await) });
 
     Model {
         artists: RemoteData::Loading,
@@ -27,6 +28,7 @@ pub fn init(_url: Url, orders: &mut impl Orders<Msg>) -> Model {
 }
 
 pub fn update(msg: Msg, model: &mut Model, _: &mut impl Orders<Msg>) {
+    println!("update {:#?}", msg);
     match msg {
         Msg::ArtistsFetched(Ok(artists)) => model.artists = RemoteData::Loaded(artists),
         Msg::ArtistsFetched(Err(e)) => {
@@ -43,37 +45,26 @@ pub fn view(model: &Model) -> Node<Msg> {
     }
 }
 
-fn view_artists(artists: &[ArtistItem]) -> Node<Msg> {
+fn view_artists(artists: &[ArtistListItem]) -> Node<Msg> {
     section![
         C![page_styles()],
         div![
             C![C.flex, C.flex_row, C.flex_wrap, C.justify_center],
-            artists.iter().map(|a| one_artist(a)),
+            artists.iter().map(|a| one_artist(a))
         ]
     ]
 }
 
-fn one_artist(artist: &ArtistItem) -> Node<Msg> {
-    let client = Client::new();
+fn one_artist(artist: &ArtistListItem) -> Node<Msg> {
     div![
         C![C.h_auto, C.w_32, C.md__w_40, C.lg__w_48, C.m_6, C.md__m_8, C.lg__m_10],
         div![
             C![C.object_contain, C.mb_4],
             a![
                 attrs! {
-                    At::Href => &artist.url,
+                    At::Href => &artist.url(),
                 },
-                img![
-                    C![
-                        C.rounded_full,
-                        C.ring_4,
-                        C.ring_indigo_500,
-                        C.ring_opacity_50,
-                    ],
-                    attrs! {
-                        At::Src => image_src("Siip-cover.jpg"),
-                    }
-                ]
+                album_cover(artist.album_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
             ],
         ],
         div![
@@ -81,22 +72,14 @@ fn one_artist(artist: &ArtistItem) -> Node<Msg> {
             a![
                 C![C.text_lg],
                 attrs! {
-                    At::Href => &artist.url,
+                    At::Href => &artist.url(),
                 },
-                &artist.name,
+                &artist.display_name,
             ],
             br![],
-            crate::maybe_plural(artist.releases.len(), "release"),
+            crate::maybe_plural(artist.release_count, "release"),
             br![],
-            crate::maybe_plural(
-                artist
-                    .releases
-                    .values()
-                    .map(|release_id| { client.release_by_id(release_id).unwrap().tracks.len() })
-                    .reduce(|a, b| a + b)
-                    .unwrap(),
-                "track",
-            )
+            crate::maybe_plural(artist.track_count, "track")
         ]
     ]
 }

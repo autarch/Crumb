@@ -173,9 +173,11 @@ dependencies = [
  "crumb-db",
  "futures",
  "prost",
+ "prost-types",
  "tokio",
  "tonic",
  "tonic-build",
+ "tonic-web",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -666,6 +668,7 @@ version = "0.1.0"
 dependencies = [
  "grpc-web-client",
  "prost",
+ "prost-types",
  "seed",
  "serde",
  "serde_json",
@@ -2543,6 +2546,24 @@ dependencies = [
  "prost-build",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tonic-web"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5802af338d3f01590a5c0777783f0e0897df05e9b053ac0084e310a9319a456"
+dependencies = [
+ "base64",
+ "bytes",
+ "futures-core",
+ "http",
+ "http-body",
+ "hyper",
+ "pin-project",
+ "tonic",
+ "tower-service",
+ "tracing",
 ]
 
 [[package]]

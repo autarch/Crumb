@@ -5,6 +5,7 @@ authors = ["Dave Rolsky <autarch@urth.org>"]
 description = "Importer for the music player"
 repository = "https://github.com/houseabsolute/Crumb"
 readme = "README.md"
+license = "AGPL-3.0"
 edition = "2021"
 
 [lib]
@@ -19,6 +20,7 @@ wasm-bindgen-test = "0.3.18"
 # 0.6.
 grpc-web-client = { version = "~0.1", path = "../../grpc-web-client/grpc-web-client" }
 prost = "~0.9"
+prost-types = "~0.9"
 seed = "~0.8"
 serde = { version = "~1", features = ["derive"] }
 serde_json = { version = "~1" }

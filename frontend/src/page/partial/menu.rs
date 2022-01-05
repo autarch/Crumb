@@ -90,10 +90,10 @@ fn menu_items(page: &Page, base_url: &Url) -> Node<Msg> {
                 "All artists",
             ),
             menu_item(
-                matches!(page, Page::Albums),
-                "Albums",
-                Urls::new(base_url).albums(),
-                "All albums",
+                matches!(page, Page::Releases),
+                "Releases",
+                Urls::new(base_url).releases(),
+                "All releases",
             ),
             menu_item(
                 matches!(page, Page::Tracks),

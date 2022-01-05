@@ -55,30 +55,33 @@ fn view_now_playing(queue: Ref<Queue>) -> Node<Msg> {
 }
 
 fn view_current_track(queue: &Ref<Queue>) -> Node<Msg> {
+    let current = match &queue.current {
+        Some(c) => c,
+        None => return Node::Empty,
+    };
+    let artist = current.artist.core.as_ref().unwrap();
+    let release = current.release.core.as_ref().unwrap();
     let contents = match queue.is_empty() {
         true => vec![div![C![C.col_span_5], "Queue is empty"]],
-        false => match queue.current_track() {
+        false => match &queue.current {
             None => vec![div![C![C.col_span_5], "Nothing is currently playing."]],
-            Some(track) => {
+            Some(current) => {
+                let current_track = queue.current_track().unwrap();
                 vec![
-                    components::release_image(
-                        &queue.current_artist,
-                        &queue.current_release,
-                        Some(&[C.h_auto, C.w_16, C.mr_6]),
-                    )
-                    .map_msg(Msg::ComponentsMsg),
+                    components::release_image(artist, release, Some(&[C.h_auto, C.w_16, C.mr_6]))
+                        .map_msg(Msg::ComponentsMsg),
                     div![
                         C![C.col_span_4],
-                        &track.display_title,
+                        &current_track.display_title,
                         br![],
                         a![
-                            attrs! { At::Href => &queue.current_artist.url },
-                            &queue.current_artist.name,
+                            attrs! { At::Href => artist.url() },
+                            &artist.display_name,
                         ],
                         " - ",
                         a![
-                            attrs! { At::Href => &queue.current_release.url },
-                            &queue.current_release.display_title,
+                            attrs! { At::Href => release.url() },
+                            &release.display_title,
                         ]
                     ],
                 ]

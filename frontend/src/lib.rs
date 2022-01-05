@@ -30,7 +30,7 @@ const TRACKS: &str = "tracks";
 const QUEUE: &str = "queue";
 
 const ARTIST: &str = "artist";
-// const RELEASE: &str = "release";
+const RELEASE: &str = "release";
 // const TRACK: &str = "track";
 
 #[wasm_bindgen(start)]
@@ -48,6 +48,7 @@ pub enum Page {
     Artists(page::artists::Model),
     Artist(page::artist::Model),
     Releases,
+    Release(page::release::Model),
     Tracks,
     Queue(page::queue::Model),
     NotFound,
@@ -64,6 +65,9 @@ impl Page {
                 Self::Artist(page::artist::init(url, &mut orders.proxy(Msg::ArtistMsg)))
             }
             //            [RELEASES] => Self::Releases(page::releases::init(url, &mut orders.proxy(Msg::ReleasesMsg))),
+            Some(RELEASE) => {
+                Self::Release(page::release::init(url, &mut orders.proxy(Msg::ReleaseMsg)))
+            }
             //            [TRACKS] => Self::Tracks(page::tracks::init(url, &mut orders.proxy(Msg::TracksMsg))),
             Some(QUEUE) => Self::Queue(page::queue::init(url, &mut orders.proxy(Msg::QueueMsg))),
             _ => Self::NotFound,
@@ -82,7 +86,7 @@ impl<'a> Urls<'a> {
     }
 
     pub fn release(self) -> Url {
-        self.base_url().add_path_part(RELEASES)
+        self.base_url().add_path_part(RELEASE)
     }
 
     pub fn artists(self) -> Url {
@@ -112,10 +116,15 @@ pub struct Model {
 #[derive(Debug)]
 pub struct Queue {
     tracks: Vec<ReleaseTrack>,
-    current_idx: Option<usize>,
-    current_artist: ArtistItem,
-    current_release: ReleaseItem,
+    pub current: Option<CurrentQueueItem>,
     is_playing: bool,
+}
+
+#[derive(Debug)]
+pub struct CurrentQueueItem {
+    idx: usize,
+    artist: ArtistItem,
+    release: ReleaseItem,
 }
 
 #[derive(Debug)]
@@ -126,26 +135,33 @@ pub struct QueueItem<'a> {
 
 impl Queue {
     fn new(tracks: Vec<ReleaseTrack>, current_idx: usize, is_playing: bool) -> Self {
-        let client = Client::new();
-        let current_track = &tracks[current_idx];
-        let release = client.release_by_id("XXX").unwrap().clone();
-        let artist = client
-            .artist_by_id(&release.primary_artist_id)
-            .unwrap()
-            .clone();
+        return Self {
+            tracks: vec![],
+            current: None,
+            is_playing: false,
+        };
 
-        Queue {
-            tracks,
-            current_idx: Some(current_idx),
-            current_artist: artist,
-            current_release: release,
-            is_playing,
-        }
+        // let client = Client::new();
+        // let release = client.get_release("XXX").unwrap().clone();
+        // let artist = client
+        //     .get_artist(&release.core.as_ref().unwrap().primary_artist_id)
+        //     .unwrap()
+        //     .clone();
+
+        // Self {
+        //     tracks,
+        //     current: Some(CurrentQueueItem {
+        //         idx: current_idx,
+        //         artist,
+        //         release,
+        //     }),
+        //     is_playing,
+        // }
     }
 
     fn current_track(&self) -> Option<&ReleaseTrack> {
-        match self.current_idx {
-            Some(i) => Some(&self.tracks[i]),
+        match self.current {
+            Some(CurrentQueueItem { idx: i, .. }) => Some(&self.tracks[i]),
             None => None,
         }
     }
@@ -155,19 +171,10 @@ impl Queue {
             return;
         }
 
-        match self.current_idx {
-            Some(i) => {
-                let next = i + 1;
-                if let Some(_) = self.tracks.get(next) {
-                    self.current_idx = Some(next);
-                } else {
-                    self.current_idx = None;
-                }
-            }
-            None => (),
-        }
-
-        self.set_current_state();
+        self.set_current_state(match self.current {
+            Some(CurrentQueueItem { idx: i, .. }) => i as i64 + 1,
+            None => 1,
+        });
     }
 
     fn move_to_previous(&mut self) {
@@ -175,40 +182,39 @@ impl Queue {
             return;
         }
 
-        match self.current_idx {
-            Some(i) => {
-                let previous = i - 1;
-                if let Some(_) = self.tracks.get(previous) {
-                    self.current_idx = Some(previous);
-                } else {
-                    self.current_idx = None;
-                }
-            }
-            None => {
-                let previous = self.tracks.len() - 1;
-                self.current_idx = Some(previous);
-            }
-        }
-
-        self.set_current_state();
+        self.set_current_state(match self.current {
+            Some(CurrentQueueItem { idx: i, .. }) => i as i64 - 1,
+            None => 1,
+        });
     }
 
-    fn set_current_state(&mut self) {
-        match self.current_idx {
-            Some(i) => {
-                let client = Client::new();
-                let current_track = &self.tracks[i];
-                self.current_release = client
-                    .release_by_id(&current_track.release_id)
-                    .unwrap()
-                    .clone();
-                self.current_artist = client
-                    .artist_by_id(&self.current_release.artist_id)
-                    .unwrap()
-                    .clone();
-            }
-            None => self.is_playing = false,
-        }
+    fn set_current_state(&mut self, idx: i64) {
+        // if idx < 0 {
+        //     self.current = None;
+        //     return;
+        // }
+
+        // if let Some(current_track) = &self.tracks.get(idx as usize) {
+        //     let client = Client::new();
+        //     let release = client
+        //         .get_release(&current_track.release_id)
+        //         .unwrap()
+        //         .clone();
+        //     let artist = client
+        //         .get_artist(&release.core.as_ref().unwrap().primary_artist_id)
+        //         .unwrap()
+        //         .clone();
+        //     self.current = Some(CurrentQueueItem {
+        //         idx: idx as usize,
+        //         release,
+        //         artist,
+        //     });
+        // } else {
+        //     self.current = None
+        // }
+        // if self.current.is_none() {
+        //     self.is_playing = false;
+        // }
     }
 
     fn toggle_is_playing(&mut self) {
@@ -216,8 +222,8 @@ impl Queue {
     }
 
     fn visible_items(&self) -> Option<impl Iterator<Item = QueueItem>> {
-        match self.current_idx {
-            Some(idx) => {
+        match self.current {
+            Some(CurrentQueueItem { idx, .. }) => {
                 let range = idx..self.tracks.len();
                 Some(
                     self.tracks[range]
@@ -237,8 +243,8 @@ impl Queue {
         if self.is_empty() {
             return false;
         }
-        match self.current_idx {
-            Some(_) => true,
+        match self.current {
+            Some(CurrentQueueItem { idx, .. }) => idx < self.tracks.len() - 1,
             None => false,
         }
     }
@@ -247,8 +253,8 @@ impl Queue {
         if self.is_empty() {
             return false;
         }
-        match self.current_idx {
-            Some(i) => i != 0,
+        match self.current {
+            Some(CurrentQueueItem { idx, .. }) => idx != 0,
             None => true,
         }
     }
@@ -262,7 +268,7 @@ impl Queue {
     }
 
     fn has_visible_tracks(&self) -> bool {
-        self.current_idx.is_some() && !self.is_empty()
+        self.current.is_some() && !self.is_empty()
     }
 }
 
@@ -273,6 +279,7 @@ pub enum Msg {
 
     ArtistsMsg(page::artists::Msg),
     ArtistMsg(page::artist::Msg),
+    ReleaseMsg(page::release::Msg),
     HomeMsg(page::home::Msg),
     QueueMsg(page::queue::Msg),
     NotFoundMsg(page::not_found::Msg),
@@ -372,6 +379,11 @@ pub fn update(msg: Msg, model: &mut Model, orders: &mut impl Orders<Msg>) {
                 page::artist::update(msg, model, &mut orders.proxy(Msg::ArtistMsg))
             }
         }
+        Msg::ReleaseMsg(msg) => {
+            if let Page::Release(model) = &mut model.page {
+                page::release::update(msg, model, &mut orders.proxy(Msg::ReleaseMsg))
+            }
+        }
         Msg::QueueMsg(msg) => {
             if let Page::Queue(model) = &mut model.page {
                 page::queue::update(msg, model, &mut orders.proxy(Msg::QueueMsg))
@@ -407,6 +419,7 @@ fn view_main(model: &Model) -> Node<Msg> {
             Page::Artists(model) => page::artists::view(model).map_msg(Msg::ArtistsMsg),
             Page::Artist(model) => page::artist::view(model).map_msg(Msg::ArtistMsg),
             //            Page::Releases(model) => page::releases::view(model),
+            Page::Release(model) => page::release::view(model).map_msg(Msg::ReleaseMsg),
             //            Page::Tracks(model) => page::tracks::view(model),
             Page::Queue(model) => page::queue::view(model).map_msg(Msg::QueueMsg),
             Page::NotFound => page::not_found::view().map_msg(Msg::NotFoundMsg),
@@ -427,9 +440,38 @@ pub(crate) fn page_styles() -> Vec<&'static str> {
     vec![C.flex_grow, C.p_4]
 }
 
-pub(crate) fn maybe_plural(count: usize, noun: &'static str) -> String {
+pub(crate) fn maybe_plural(count: u32, noun: &'static str) -> String {
     match count {
         1 => format!("1 {}", noun),
         _ => format!("{} {}s", count, noun),
     }
+}
+
+pub(crate) fn view_error(error: &crate::client::Status) -> Node<Msg> {
+    section![
+        C![page_styles()],
+        h1![C![C.text_center, C.text_2xl], "Error"],
+        div![
+            C![C.flex, C.flex_row, C.flex_wrap, C.justify_center],
+            &error.message,
+        ]
+    ]
+}
+
+pub(crate) fn album_cover(uri: Option<&str>) -> Node<Msg> {
+    img![
+        C![
+            C.rounded_full,
+            C.ring_4,
+            C.ring_indigo_500,
+            C.ring_opacity_50,
+        ],
+        attrs! {
+            At::Src => match uri {
+                // All the thumb sized images are JPEGs, I think.
+                Some(u) => u.replace(".jpg", "_thumb250.jpg").replace(".png", "_thumb250.jpg").replace(".gif", "_thumb250.jpg"),
+                None => "https://dummyimage.com/200x200/fff/aaa".to_string(),
+            },
+        }
+    ]
 }

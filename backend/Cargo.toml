@@ -13,8 +13,10 @@ anyhow = { version = "~1", features = ["backtrace"] }
 crumb-db = { path = "../db" }
 futures = {version = "~0.3", default-features = false, features = ["alloc"]}
 prost = "~0.9"
+prost-types = "~0.9"
 tokio = { version = "~1", features = ["macros", "rt-multi-thread"] }
 tonic = { version = "~0.6", features = [ "compression", "prost", "tls" ] }
+tonic-web = "~0.2"
 tracing = "~0.1"
 tracing-subscriber = "~0.3"
 uuid = "~0.8"

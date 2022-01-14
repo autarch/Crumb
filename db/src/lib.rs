@@ -5,12 +5,15 @@ pub use crate::dbtypes::*;
 use crate::names::*;
 use itertools::Itertools;
 use log::debug;
+pub use sqlx::Error as SQLXError;
 use sqlx::{
     postgres::{PgPool, PgPoolOptions, PgRow},
     Postgres, Row, Transaction,
 };
-pub use sqlx::Error as SQLXError;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -970,6 +973,48 @@ impl DB {
         sqlx::query_as::<_, ReleaseTrack>(&select)
             .bind(&user.user_id)
             .bind(release_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    #[tracing::instrument]
+    pub async fn queue_for_user(&self, user: &User) -> DBResult<Vec<ReleaseTrack>> {
+        // XXX - need to have an actual queue table!
+        let select = format!(
+            r#"
+                SELECT t.track_id,
+                       t.primary_artist_id,
+                       COALESCE({display_order:}) AS display_title,
+                       t.title,
+                       t.transcripted_title,
+                       t.translated_title,
+                       t.length,
+                       t.content_hash,
+                       rt.release_id,
+                       rt.position
+                  FROM crumb.release AS r
+                  JOIN crumb.release_track AS rt USING (release_id)
+                  JOIN crumb.track AS t USING (track_id)
+                  JOIN crumb.user_track AS ut USING (track_id)
+                  JOIN musicbrainz.release AS mr ON r.musicbrainz_release_id = mr.id
+                 WHERE ut.user_id = $1
+                   AND r.release_id = ANY($2)
+                ORDER BY display_title, rt.position ASC
+            "#,
+            display_order = user.display_order("t", SortableThing::Track),
+        );
+        let release_ids: Vec<_> = [
+            "f0f3d465-4c0d-4e1d-b59f-7c5cf4398a74",
+            "a9fe542e-3752-496d-b27a-f5749d7ace7e",
+            "659abdf1-f29b-4603-a5a1-c19be755e104",
+        ]
+        .iter()
+        .map(|u| Uuid::from_str(u).expect("could not parse uuid"))
+        .collect::<Vec<_>>();
+        sqlx::query_as::<_, ReleaseTrack>(&select)
+            .bind(&user.user_id)
+            .bind(&release_ids)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.into())

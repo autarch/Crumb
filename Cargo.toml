@@ -5,6 +5,7 @@ members = [
     "db",
     "frontend",
     "importer",
+    "web-frontend",
 ]
 resolver = "2"
 

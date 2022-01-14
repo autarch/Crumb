@@ -1,0 +1,23 @@
+[package]
+name = "web-frontend"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = { path = "../../dioxus", features = [ "router", "web" ] }
+grpc-web-client = { version = "~0.1", path = "../../grpc-web-client/grpc-web-client" }
+log = "~0.4"
+prost = "~0.9"
+prost-types = "~0.9"
+serde = { version = "~1", features = ["derive"] }
+serde_json = { version = "~1" }
+thiserror = "~1"
+tonic = { version = "~0.6", default-features = false, features = [ "codegen", "prost" ] }
+typed-builder = "~0.9"
+uuid = { version = "~0.8", features = ["v5"] }
+wasm-logger = "~0.2"
+
+[build-dependencies]
+tonic-build = { version = "~0.6", default-features = false, features = [ "prost", "rustfmt" ] }

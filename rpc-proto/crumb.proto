@@ -3,6 +3,9 @@ package crumb.v1;
 
 import "google/protobuf/any.proto";
 
+// XXX - Tonic already includes Code and Status for its own internal use. Can
+// we reuse that somehow?
+
 // The canonical error codes for gRPC APIs.
 //
 //
@@ -269,10 +272,13 @@ message GetTracksForReleaseRequest {
     string release_id = 1;
 }
 
+message GetQueueRequest {}
+
 service Crumb {
     rpc GetArtists (GetArtistsRequest) returns (stream ArtistListItem);
     rpc GetArtist (GetArtistRequest) returns (GetArtistResponse);
     rpc GetReleasesForArtist (GetReleasesForArtistRequest) returns (stream ReleaseListItem);
     rpc GetRelease (GetReleaseRequest) returns (GetReleaseResponse);
     rpc GetTracksForRelease (GetTracksForReleaseRequest) returns (stream ReleaseTrack);
+    rpc GetQueue (GetQueueRequest) returns (stream ReleaseTrack);
 }

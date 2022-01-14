@@ -26,6 +26,9 @@ type GetTracksForReleaseResult<T> = Result<Response<T>, TonicStatus>;
 type GetTracksForReleaseResponseStream =
     Pin<Box<dyn Stream<Item = Result<ReleaseTrack, TonicStatus>> + Send>>;
 
+type GetQueueResult<T> = Result<Response<T>, TonicStatus>;
+type GetQueueResponseStream = Pin<Box<dyn Stream<Item = Result<ReleaseTrack, TonicStatus>> + Send>>;
+
 #[derive(Debug)]
 struct MyCrumb {
     db: DB,
@@ -43,6 +46,7 @@ impl Crumb for MyCrumb {
     type GetArtistsStream = GetArtistsResponseStream;
     type GetReleasesForArtistStream = GetReleasesForArtistResponseStream;
     type GetTracksForReleaseStream = GetTracksForReleaseResponseStream;
+    type GetQueueStream = GetQueueResponseStream;
 
     #[tracing::instrument]
     async fn get_artists(
@@ -239,6 +243,31 @@ impl Crumb for MyCrumb {
                     release_id = %release_id,
                     error = %e,
                     "error getting tracks for release",
+                );
+                TonicStatus::internal("Server error")
+            })?
+            .into_iter()
+            .map(|a| Ok(to_rpc_release_track_struct(a)))
+            .collect::<Vec<_>>();
+        Ok(Response::new(Box::pin(stream::iter(releases))))
+    }
+
+    #[tracing::instrument]
+    async fn get_queue(&self, _: Request<GetQueueRequest>) -> GetQueueResult<Self::GetQueueStream> {
+        let user = self.get_user().await?;
+        // XXX - getting a vec from the db using fetch_many the crumb_db
+        // package instead of just returning a stream is gross, but attempting
+        // to return the stream gave me all sorts of lifetime errors.
+        let releases = self
+            .db
+            .queue_for_user(&user)
+            .await
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    user_id = %user.user_id.to_string(),
+                    error = %e,
+                    "error getting queue",
                 );
                 TonicStatus::internal("Server error")
             })?

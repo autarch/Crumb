@@ -128,7 +128,7 @@ pub struct ArtistListItem {
     pub translated_sortable_name: Option<CiText>,
     pub release_count: i64,
     pub track_count: i64,
-    pub album_cover_uri: Option<String>,
+    pub release_cover_uri: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -153,12 +153,13 @@ pub struct ReleaseListItem {
     pub original_year: Option<i16>,
     pub original_month: Option<i16>,
     pub original_day: Option<i16>,
-    pub album_cover_uri: Option<String>,
+    pub release_cover_uri: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
 pub struct ReleaseItem {
     pub core: ReleaseListItem,
+    pub artist: ArtistListItem,
     pub tracks: Vec<ReleaseTrack>,
 }
 
@@ -174,6 +175,18 @@ pub struct ReleaseTrack {
     pub content_hash: String,
     pub position: i32,
     pub release_id: Uuid,
+}
+
+#[derive(Debug)]
+pub struct QueueItem {
+    pub release_track: ReleaseTrack,
+    pub release_id: Uuid,
+    pub release_display_title: CiText,
+    pub release_cover_uri: Option<String>,
+    pub artist_id: Uuid,
+    pub artist_display_name: CiText,
+    pub queue_position: rust_decimal::Decimal,
+    pub is_current: bool,
 }
 
 #[derive(Debug)]

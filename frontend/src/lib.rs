@@ -458,7 +458,7 @@ pub(crate) fn view_error(error: &crate::client::Status) -> Node<Msg> {
     ]
 }
 
-pub(crate) fn album_cover(uri: Option<&str>) -> Node<Msg> {
+pub(crate) fn release_cover(uri: Option<&str>) -> Node<Msg> {
     img![
         C![
             C.rounded_full,

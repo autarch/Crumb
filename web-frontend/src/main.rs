@@ -1,7 +1,5 @@
 #![allow(non_snake_case)]
 
-mod artist;
-mod artists;
 mod client;
 mod components;
 mod css;
@@ -9,12 +7,16 @@ mod icons;
 mod menu;
 mod models;
 mod now_playing;
-mod release;
+mod pages;
 mod util;
 
-use client::Client;
+use crate::{pages::*, util::new_client};
 use dioxus::{prelude::*, router::*};
 use models::Queue;
+
+pub(crate) type QueueFetchResult = Result<Queue, client::Error>;
+pub(crate) type QueueReceiveUseFuture =
+    UseFuture<Result<QueueFetchResult, async_channel::RecvError>>;
 
 fn main() {
     wasm_logger::init(wasm_logger::Config::new(log::Level::Debug));
@@ -22,65 +24,139 @@ fn main() {
 }
 
 fn App(cx: Scope) -> Element {
-    let queue = use_future(&cx, || async move {
-        // Ok(Queue::new(vec![], 0, None, None, false))
-        client::Client::new().get_queue().await
+    // Is 3 the right number? I have no clue!
+    let (tx, rx) = async_channel::bounded::<QueueFetchResult>(3);
+    let tx_clone = tx.clone();
+    cx.spawn(async move {
+        let queue = new_client().get_queue().await;
+        tx_clone.send(queue).await;
     });
+    let queue = use_future(&cx, || async move { rx.recv().await });
 
+    let (_, is_playing) = use_state(&cx, || false);
     cx.render(rsx! {
         Router {
-            Route { to: "/", Home {} }
-            Route { to: "/artists", artists::Artists {} },
-            Route { to: "/artist/:artist_id", artist::Artist {} },
-            Route { to: "/releases", Releases {} },
-            Route { to: "/release/:release_id", release::Release {} },
-            Route { to: "/tracks", Tracks {} },
-            Route { to: "/queue", Queue { } },
+            Route {
+                to: "/",
+                Crumb {
+                    page: Page::Home,
+                    queue: queue,
+                    queue_tx: tx.clone(),
+                    is_playing: is_playing.clone(),
+                }
+            },
+            Route {
+                to: "/artists",
+                Crumb {
+                    page: Page::Artists,
+                    queue: queue,
+                    queue_tx: tx.clone(),
+                    is_playing: is_playing.clone(),
+                }
+            },
+            Route {
+                to: "/artist/:artist_id",
+                Crumb {
+                    page: Page::Artist,
+                    queue: queue
+                    is_playing: is_playing.clone(),
+                    queue_tx: tx.clone(),
+                }
+            },
+            Route {
+                to: "/releases",
+                Crumb {
+                    page: Page::Releases,
+                    queue: queue,
+                    queue_tx: tx.clone(),
+                    is_playing: is_playing.clone(),
+                }
+            },
+            Route {
+                to: "/release/:release_id",
+                Crumb {
+                    page: Page::Release,
+                    queue: queue,
+                    queue_tx: tx.clone(),
+                    is_playing: is_playing.clone(),
+                }
+            },
+            Route {
+                to: "/tracks",
+                Crumb {
+                    page: Page::Tracks,
+                    queue: queue,
+                    queue_tx: tx.clone(),
+                    is_playing: is_playing.clone(),
+                },
+            },
+            Route {
+                to: "/queue",
+                Crumb {
+                    page: Page::Queue,
+                    queue: queue,
+                    queue_tx: tx.clone(),
+                    is_playing: is_playing.clone(),
+                }
+            },
         },
-        now_playing::NowPlaying {
-            queue: queue
-        },
-    })
-}
-
-fn Home(cx: Scope) -> Element {
-    cx.render(rsx! {
-        Crumb {
-            h1 { "Home" },
-        }
-    })
-}
-
-fn Releases(cx: Scope) -> Element {
-    cx.render(rsx! {
-        Crumb {
-            h1 { "Releases" },
-        }
-    })
-}
-
-fn Tracks(cx: Scope) -> Element {
-    cx.render(rsx! {
-        Crumb {
-            h1 { "Tracks" },
-        }
     })
 }
 
 #[inline_props]
-fn Queue(cx: Scope, //, queue: &'a UseFuture<Result<Queue, client::Error>>
+fn Crumb<'a>(
+    cx: Scope,
+    page: Page,
+    queue: &'a QueueReceiveUseFuture,
+    queue_tx: async_channel::Sender<QueueFetchResult>,
+    is_playing: &'a UseState<bool>,
 ) -> Element {
-    cx.render(rsx! {
-        Crumb {
-            h1 { "Queue" },
-        }
-    })
-}
+    let main = match page {
+        Page::Home => rsx! {
+            Home {
+            },
+        },
+        Page::Artists => rsx! {
+            artists::Artists {
+            },
+        },
+        Page::Artist => rsx! {
+            artist::Artist {
+            },
+        },
+        Page::Artists => rsx! {
+            artists::Artists {
+            },
+        },
+        Page::Artist => rsx! {
+            artist::Artist {
+            },
+        },
+        Page::Releases => rsx! {
+            Releases {
+            },
+        },
+        Page::Release => rsx! {
+            release::Release {
+                queue: queue,
+                queue_tx: &queue_tx,
+            },
+        },
+        Page::Tracks => rsx! {
+            Tracks {
+            },
+        },
+        Page::Queue => rsx! {
+            Queue {
+                queue: queue,
+                queue_tx: queue_tx.clone(),
+                is_playing: is_playing,
+            },
+        },
+    };
 
-#[inline_props]
-fn Crumb<'a>(cx: Scope, children: Element<'a>) -> Element {
     let page_classes = css::Classes::builder()
-        .classes("bg-blue-50 pt-14 pb-16 h-full")
+        .classes("pt-20 pb-16 h-full")
         .with_standard_padding(true)
         .build();
     cx.render(rsx! {
@@ -93,9 +169,44 @@ fn Crumb<'a>(cx: Scope, children: Element<'a>) -> Element {
                     // This padding is necessary to give the page some
                     // breathing room above the NowPlaying component.
                     class: "pb-24",
-                    children,
-                },
+                    main,
+               },
+            },
+            now_playing::NowPlaying {
+                queue: queue,
+                queue_tx: queue_tx.clone(),
+                is_playing: is_playing,
             },
         }
+    })
+}
+
+fn Home<'a>(cx: Scope) -> Element {
+    cx.render(rsx! {
+        h1 { "Home" },
+    })
+}
+
+fn Releases<'a>(cx: Scope) -> Element {
+    cx.render(rsx! {
+        h1 { "Releases" },
+    })
+}
+
+fn Tracks<'a>(cx: Scope) -> Element {
+    cx.render(rsx! {
+        h1 { "Tracks" },
+    })
+}
+
+#[inline_props]
+fn Queue<'a>(
+    cx: Scope,
+    queue: &'a QueueReceiveUseFuture,
+    queue_tx: async_channel::Sender<QueueFetchResult>,
+    is_playing: &'a UseState<bool>,
+) -> Element {
+    cx.render(rsx! {
+        h1 { "Queue" },
     })
 }

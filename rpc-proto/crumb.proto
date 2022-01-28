@@ -196,7 +196,7 @@ message ArtistListItem {
     optional string translated_sortable_name = 8;
     uint32 release_count = 9;
     uint32 track_count = 10;
-    optional string album_cover_uri = 11;
+    optional string release_cover_uri = 11;
 }
 
 message ArtistItem {
@@ -219,7 +219,7 @@ message ReleaseListItem {
     optional uint32 original_month = 12;
     optional uint32 original_day = 13;
     uint32 track_count = 14;
-    optional string album_cover_uri = 15;
+    optional string release_cover_uri = 15;
 }
 
 message ReleaseTrack {
@@ -237,7 +237,19 @@ message ReleaseTrack {
 
 message ReleaseItem {
     ReleaseListItem core = 1;
-    repeated ReleaseTrack tracks = 2;
+    ArtistListItem artist = 2;
+    repeated ReleaseTrack tracks = 3;
+}
+
+message QueueItem {
+    ReleaseTrack release_track = 1;
+    string release_display_title = 2;
+    string release_id = 3;
+    optional string release_cover_uri = 4;
+    string artist_display_name = 5;
+    string artist_id = 6;
+    string queue_position = 7;
+    bool is_current = 8;
 }
 
 message GetArtistsRequest {}
@@ -272,7 +284,27 @@ message GetTracksForReleaseRequest {
     string release_id = 1;
 }
 
-message GetQueueRequest {}
+message GetQueueRequest {
+    string client_id = 1;
+}
+
+message AddToQueueRequest {
+    repeated string track_ids = 1;
+    string client_id = 2;
+}
+
+message RemoveFromQueueRequest {
+    repeated string positions = 1;
+    string client_id = 2;
+}
+
+message MoveQueueForwardRequest {
+    string client_id = 1;
+}
+
+message MoveQueueBackwardRequest {
+    string client_id = 1;
+}
 
 service Crumb {
     rpc GetArtists (GetArtistsRequest) returns (stream ArtistListItem);
@@ -280,5 +312,9 @@ service Crumb {
     rpc GetReleasesForArtist (GetReleasesForArtistRequest) returns (stream ReleaseListItem);
     rpc GetRelease (GetReleaseRequest) returns (GetReleaseResponse);
     rpc GetTracksForRelease (GetTracksForReleaseRequest) returns (stream ReleaseTrack);
-    rpc GetQueue (GetQueueRequest) returns (stream ReleaseTrack);
+    rpc GetQueue (GetQueueRequest) returns (stream QueueItem);
+    rpc AddToQueue (AddToQueueRequest) returns (stream QueueItem);
+    rpc RemoveFromQueue (RemoveFromQueueRequest) returns (stream QueueItem);
+    rpc MoveQueueForward (MoveQueueForwardRequest) returns (stream QueueItem);
+    rpc MoveQueueBackward (MoveQueueBackwardRequest) returns (stream QueueItem);
 }

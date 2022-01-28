@@ -4,6 +4,11 @@ dist = "dist"
 
 [[hooks]]
 stage = "build"
+command = "rm"
+command_arguments = ["css/tailwind_compiled.css"]
+
+[[hooks]]
+stage = "build"
 # I'm not sure why we can't just invoke tailwindcss directly, but that doesn't
 # seem to work for some reason.
 command = "sh"

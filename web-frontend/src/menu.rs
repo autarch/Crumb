@@ -9,9 +9,8 @@ pub(crate) fn Menu(cx: Scope) -> Element {
         "fixed",
         "top-0",
         "flex",
-        "items-center",
-        "justify-between",
         "flex-wrap",
+        "place-items-center",
         "w-screen",
         "h-14",
         "border-b-2",
@@ -26,7 +25,7 @@ pub(crate) fn Menu(cx: Scope) -> Element {
         .build();
 
     cx.render(rsx! {
-        div {
+        section {
             class: format_args!("{}", classes),
             HomeLink {},
             HamburgerButton {},

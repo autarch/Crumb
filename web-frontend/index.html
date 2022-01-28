@@ -5,7 +5,10 @@
     <link data-trunk rel="css" href="/css/tailwind_compiled.css"/>
     <base data-trunk-public-url/>
   </head>
-  <body>
+  <!-- We need the bg color on the body or else the middle fixed div is only
+  blue for the initial visible portion. Anything that we have to scroll down
+  to see has a white bg. -->
+  <body class="bg-blue-50">
     <div id="main"></div>
   </body>
 </html>

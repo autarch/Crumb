@@ -26,21 +26,27 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone)]
-pub struct Client<T>(CrumbClient<T>);
+pub struct Client<T> {
+    grpc_client: CrumbClient<T>,
+    client_id: String,
+}
 
 impl Client<grpc_web_client::Client> {
-    pub fn new() -> Self {
-        Self(CrumbClient::new(grpc_web_client::Client::new(
-            "http://127.0.0.1:13713".to_string(),
-        )))
+    pub fn new(client_id: String) -> Self {
+        Self {
+            grpc_client: CrumbClient::new(grpc_web_client::Client::new(
+                "http://localhost:13713".to_string(),
+            )),
+            client_id,
+        }
     }
 
     pub async fn get_artists(&mut self) -> Result<Vec<ArtistListItem>, Error> {
         let mut stream = self
-            .0
+            .grpc_client
             .get_artists(tonic::Request::new(GetArtistsRequest {}))
             .await
-            .map_err(|e| Error::from(e))?
+            .map_err(Error::from)?
             .into_inner();
         let mut artists: Vec<ArtistListItem> = vec![];
         while let Some(a) = stream.message().await? {
@@ -51,133 +57,132 @@ impl Client<grpc_web_client::Client> {
 
     pub async fn get_artist(&mut self, artist_id: &str) -> Result<GetArtistResponse, Error> {
         Ok(self
-            .0
+            .grpc_client
             .get_artist(tonic::Request::new(GetArtistRequest {
                 artist_id: artist_id.to_string(),
             }))
             .await
-            .map_err(|e| Error::from(e))?
+            .map_err(Error::from)?
             .into_inner())
     }
 
     pub async fn get_release(&mut self, release_id: &str) -> Result<GetReleaseResponse, Error> {
         Ok(self
-            .0
+            .grpc_client
             .get_release(tonic::Request::new(GetReleaseRequest {
                 release_id: release_id.to_string(),
             }))
             .await
-            .map_err(|e| Error::from(e))?
+            .map_err(Error::from)?
             .into_inner())
     }
 
     pub async fn get_queue(&mut self) -> Result<Queue, Error> {
-        let mut stream = self
-            .0
-            .get_queue(tonic::Request::new(GetQueueRequest {}))
-            .await
-            .map_err(|e| Error::from(e))?
-            .into_inner();
-        let mut tracks: Vec<ReleaseTrack> = vec![];
-        while let Some(t) = stream.message().await? {
-            tracks.push(t);
-        }
-        let current_idx = 1;
-        let (current_artist, current_release) =
-            self.current_for_queue(&tracks, current_idx).await?;
-        Ok(Queue::new(
-            tracks,
-            current_idx,
-            current_artist,
-            current_release,
-            false,
-        ))
+        let res = self
+            .grpc_client
+            .get_queue(tonic::Request::new(GetQueueRequest {
+                client_id: self.client_id.clone(),
+            }))
+            .await;
+        self.queue_items_from_stream(res).await
     }
 
-    async fn current_for_queue(
-        &mut self,
-        tracks: &[ReleaseTrack],
-        idx: usize,
-    ) -> Result<(Option<ArtistListItem>, Option<ReleaseListItem>), Error> {
-        if tracks.is_empty() {
-            return Ok((None, None));
-        }
+    pub async fn add_to_queue(&mut self, track_ids: Vec<String>) -> Result<Queue, Error> {
+        let res = self
+            .grpc_client
+            .add_to_queue(tonic::Request::new(AddToQueueRequest {
+                client_id: self.client_id.clone(),
+                track_ids,
+            }))
+            .await;
+        self.queue_items_from_stream(res).await
+    }
 
-        let track = &tracks[idx];
-        let artist = match self
-            .get_artist(&track.primary_artist_id)
-            .await?
-            .response_either
-        {
-            Some(get_artist_response::ResponseEither::Artist(a)) => match a.core {
-                Some(a) => a,
-                None => {
-                    return Err(Error::UnexpectedEmptyResponse {
-                        request: "GetArtist",
-                        message: "response had an empty core field",
-                    })
-                }
-            },
-            Some(get_artist_response::ResponseEither::Error(e)) => {
-                return Err(Error::UnexpectedErrorResponse {
-                    request: "GetArtist",
-                    code: tonic::Code::from_i32(e.code),
-                    message: e.message,
-                })
-            }
-            None => {
-                return Err(Error::UnexpectedEmptyResponse {
-                    request: "GetArtist",
-                    message: "response was empty",
-                })
-            }
-        };
-        let release = match self.get_release(&track.release_id).await?.response_either {
-            Some(get_release_response::ResponseEither::Release(r)) => match r.core {
-                Some(r) => r,
-                None => {
-                    return Err(Error::UnexpectedEmptyResponse {
-                        request: "GetRelease",
-                        message: "response had an empty core field",
-                    })
-                }
-            },
-            Some(get_release_response::ResponseEither::Error(e)) => {
-                return Err(Error::UnexpectedErrorResponse {
-                    request: "GetRelease",
-                    code: tonic::Code::from_i32(e.code),
-                    message: e.message,
-                })
-            }
-            None => {
-                return Err(Error::UnexpectedEmptyResponse {
-                    request: "GetRelease",
-                    message: "response was empty",
-                })
-            }
-        };
-        Ok((Some(artist), Some(release)))
+    pub async fn remove_from_queue(&mut self, positions: Vec<String>) -> Result<Queue, Error> {
+        let res = self
+            .grpc_client
+            .remove_from_queue(tonic::Request::new(RemoveFromQueueRequest {
+                client_id: self.client_id.clone(),
+                positions,
+            }))
+            .await;
+        self.queue_items_from_stream(res).await
+    }
+
+    pub async fn move_queue_forward(&mut self) -> Result<Queue, Error> {
+        let res = self
+            .grpc_client
+            .move_queue_forward(tonic::Request::new(MoveQueueForwardRequest {
+                client_id: self.client_id.clone(),
+            }))
+            .await;
+        self.queue_items_from_stream(res).await
+    }
+
+    pub async fn move_queue_backward(&mut self) -> Result<Queue, Error> {
+        let res = self
+            .grpc_client
+            .move_queue_backward(tonic::Request::new(MoveQueueBackwardRequest {
+                client_id: self.client_id.clone(),
+            }))
+            .await;
+        self.queue_items_from_stream(res).await
+    }
+
+    async fn queue_items_from_stream(
+        &mut self,
+        req: Result<tonic::Response<tonic::codec::Streaming<QueueItem>>, tonic::Status>,
+    ) -> Result<Queue, Error> {
+        let mut stream = req.map_err(Error::from)?.into_inner();
+        let mut items: Vec<QueueItem> = vec![];
+        while let Some(t) = stream.message().await? {
+            items.push(t);
+        }
+        let current =
+            items
+                .iter()
+                .enumerate()
+                .find_map(|(i, item)| if item.is_current { Some(i) } else { None });
+        Ok(Queue::new(items, current))
     }
 }
 
 impl ArtistListItem {
     pub fn url(&self) -> String {
-        format!("/artist/{}", self.artist_id)
+        artist_url(&self.artist_id)
     }
 }
 
 impl ReleaseListItem {
     pub fn url(&self) -> String {
-        format!("/release/{}", self.release_id)
+        release_url(&self.release_id)
     }
 
-    pub fn best_release_year(&self) -> String {
+    pub fn best_release_year(&self, default: &'static str) -> String {
         match self.original_year {
             Some(y) => format!("{}", y),
             None => match self.release_year {
                 Some(y) => format!("{}", y),
-                None => "Unknown".to_string(),
+                None => default.to_string(),
             },
         }
     }
+}
+
+impl QueueItem {
+    pub fn artist_url(&self) -> String {
+        artist_url(&self.artist_id)
+    }
+
+    pub fn release_url(&self) -> String {
+        release_url(&self.release_id)
+    }
+}
+
+pub(crate) fn artist_url(id: &str) -> String {
+    format!("/artist/{}", id)
+}
+
+pub(crate) fn release_url(id: &str) -> String {
+    format!("/release/{}", id)
 }

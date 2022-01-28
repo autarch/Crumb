@@ -1,5 +1,5 @@
 use crate::{
-    album_cover,
+    release_cover,
     client::{
         get_release_response, Client, GetReleaseResponse, ReleaseItem, ReleaseListItem,
         ReleaseTrack,
@@ -72,7 +72,7 @@ fn view_release(release: &ReleaseItem) -> Node<Msg> {
         C![page_styles()],
         div![
             C![C.flex, C.flex_row, C.flex_wrap, C.justify_center],
-            album_cover(core.album_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
+            release_cover(core.release_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
             div![
                 h1![C![C.text_center, C.text_2xl], &core.display_title,],
                 h2![release_year],
@@ -90,7 +90,7 @@ fn one_track(release: &ReleaseListItem, track: &ReleaseTrack) -> Node<Msg> {
         C![C.h_auto, C.w_32, C.md__w_40, C.lg__w_48, C.m_6, C.md__m_8, C.lg__m_10],
         div![
             C![C.object_contain, C.mb_4],
-            //            album_cover(release.album_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
+            //            release_cover(release.release_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
         ],
         div![C![C.text_center, C.text_lg], h2![&track.display_title],],
     ]

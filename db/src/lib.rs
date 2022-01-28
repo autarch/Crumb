@@ -8,12 +8,9 @@ use log::debug;
 pub use sqlx::Error as SQLXError;
 use sqlx::{
     postgres::{PgPool, PgPoolOptions, PgRow},
-    Postgres, Row, Transaction,
+    Executor, Postgres, Row, Transaction,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    str::FromStr,
-};
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -800,7 +797,7 @@ impl DB {
                        a.translated_sortable_name,
                        COUNT(DISTINCT r.release_id) AS release_count,
                        COUNT(DISTINCT t.track_id) AS track_count,
-                       crumb.best_cover_image_for_artist(a.artist_id, $1) AS album_cover_uri
+                       crumb.best_cover_image_for_artist(a.artist_id, $1) AS release_cover_uri
                   FROM crumb.artist AS a
                   JOIN crumb.release AS r ON a.artist_id = r.primary_artist_id
                   JOIN crumb.release_track AS rt USING (release_id)
@@ -834,7 +831,7 @@ impl DB {
                        a.translated_sortable_name,
                        COUNT(DISTINCT r.release_id) AS release_count,
                        COUNT(DISTINCT t.track_id) AS track_count,
-                       crumb.best_cover_image_for_artist(a.artist_id, $1) AS album_cover_uri
+                       crumb.best_cover_image_for_artist(a.artist_id, $1) AS release_cover_uri
                   FROM crumb.artist AS a
                   JOIN crumb.release AS r ON a.artist_id = r.primary_artist_id
                   JOIN crumb.release_track AS rt USING (release_id)
@@ -879,7 +876,7 @@ impl DB {
                        r.original_month,
                        r.original_day,
                        crumb.release_date_for_release(r) release_date,
-                       crumb.best_cover_image_for_release(mr.id, mr.release_group) AS album_cover_uri
+                       crumb.best_cover_image_for_release(mr.id, mr.release_group) AS release_cover_uri
                   FROM crumb.release AS r
                   JOIN crumb.release_track AS rt USING (release_id)
                   JOIN crumb.track AS t USING (track_id)
@@ -919,7 +916,7 @@ impl DB {
                        r.original_month,
                        r.original_day,
                        crumb.release_date_for_release(r) release_date,
-                       crumb.best_cover_image_for_release(mr.id, mr.release_group) AS album_cover_uri
+                       crumb.best_cover_image_for_release(mr.id, mr.release_group) AS release_cover_uri
                   FROM crumb.release AS r
                   JOIN crumb.release_track AS rt USING (release_id)
                   JOIN crumb.track AS t USING (track_id)
@@ -938,7 +935,12 @@ impl DB {
             .fetch_one(&self.pool)
             .await?;
         let tracks = self.tracks_for_user_by_release_id(user, release_id).await?;
-        Ok(ReleaseItem { core, tracks })
+        let artist = self.artist_for_user(user, &core.primary_artist_id).await?;
+        Ok(ReleaseItem {
+            core,
+            artist: artist.core,
+            tracks,
+        })
     }
 
     #[tracing::instrument]
@@ -978,45 +980,239 @@ impl DB {
             .map_err(|e| e.into())
     }
 
-    #[tracing::instrument]
-    pub async fn queue_for_user(&self, user: &User) -> DBResult<Vec<ReleaseTrack>> {
-        // XXX - need to have an actual queue table!
+    //    #[tracing::instrument]
+    pub async fn queue_for_user(&self, user: &User, client_id: &Uuid) -> DBResult<Vec<QueueItem>> {
         let select = format!(
             r#"
                 SELECT t.track_id,
                        t.primary_artist_id,
-                       COALESCE({display_order:}) AS display_title,
+                       COALESCE({track_display_order:}) AS display_title,
                        t.title,
                        t.transcripted_title,
                        t.translated_title,
                        t.length,
                        t.content_hash,
                        rt.release_id,
-                       rt.position
-                  FROM crumb.release AS r
-                  JOIN crumb.release_track AS rt USING (release_id)
+                       rt.position,
+                       r.release_id,
+                       COALESCE({release_display_order:}) AS release_display_title,
+                       crumb.best_cover_image_for_release(mr.id, mr.release_group) AS release_cover_uri,
+                       a.artist_id,
+                       COALESCE({artist_display_order:}) AS artist_display_name,
+                       uq.position AS queue_position,
+                       uq.is_current
+                  FROM crumb.user_queue AS uq
                   JOIN crumb.track AS t USING (track_id)
-                  JOIN crumb.user_track AS ut USING (track_id)
+                  JOIN crumb.release_track AS rt USING (track_id)
+                  JOIN crumb.release AS r USING (release_id)
+                  JOIN crumb.artist AS a ON r.primary_artist_id = a.artist_id
                   JOIN musicbrainz.release AS mr ON r.musicbrainz_release_id = mr.id
-                 WHERE ut.user_id = $1
-                   AND r.release_id = ANY($2)
-                ORDER BY display_title, rt.position ASC
+                 WHERE uq.user_id = $1
+                   AND uq.client_id = $2
+                ORDER BY uq.position ASC
             "#,
-            display_order = user.display_order("t", SortableThing::Track),
+            track_display_order = user.display_order("t", SortableThing::Track),
+            release_display_order = user.display_order("r", SortableThing::Release),
+            artist_display_order = user.display_order("a", SortableThing::Artist),
         );
-        let release_ids: Vec<_> = [
-            "f0f3d465-4c0d-4e1d-b59f-7c5cf4398a74",
-            "a9fe542e-3752-496d-b27a-f5749d7ace7e",
-            "659abdf1-f29b-4603-a5a1-c19be755e104",
-        ]
-        .iter()
-        .map(|u| Uuid::from_str(u).expect("could not parse uuid"))
-        .collect::<Vec<_>>();
-        sqlx::query_as::<_, ReleaseTrack>(&select)
+        // XXX - is there an easier way to do this without the gross map? I
+        // can't use have the query return `ROW( ... ), uq.position` and then
+        // query_as::<(ReleaseTrack, ReleaseListItem, i32)>. Nor can I make a tuple struct and
+        // use that with that query.
+        Ok(sqlx::query(&select)
             .bind(&user.user_id)
-            .bind(&release_ids)
+            .bind(client_id)
             .fetch_all(&self.pool)
-            .await
-            .map_err(|e| e.into())
+            .await?
+            .iter()
+            .map(|qi| QueueItem {
+                release_track: ReleaseTrack {
+                    track_id: qi.get("track_id"),
+                    primary_artist_id: qi.get("primary_artist_id"),
+                    display_title: qi.get("display_title"),
+                    title: qi.get("title"),
+                    transcripted_title: qi.get("transcripted_title"),
+                    translated_title: qi.get("translated_title"),
+                    length: qi.get("length"),
+                    content_hash: qi.get("content_hash"),
+                    release_id: qi.get("release_id"),
+                    position: qi.get("position"),
+                },
+                release_id: qi.get("release_id"),
+                release_display_title: qi.get("release_display_title"),
+                release_cover_uri: qi.get("release_cover_uri"),
+                artist_id: qi.get("artist_id"),
+                artist_display_name: qi.get("artist_display_name"),
+                queue_position: qi.get("queue_position"),
+                is_current: qi.get("is_current"),
+            })
+            .collect::<Vec<_>>())
+    }
+
+    #[tracing::instrument]
+    pub async fn add_to_queue_for_user(
+        &self,
+        user: &User,
+        client_id: &Uuid,
+        track_ids: &[Uuid],
+    ) -> DBResult<Vec<QueueItem>> {
+        if track_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let create = r#"
+            CREATE TEMPORARY TABLE tracks_to_queue (
+                track_id  UUID  NOT NULL,
+                position  SERIAL
+            )
+        "#;
+        tx.execute(create).await?;
+
+        let select_into_tracks_to_queue = r#"
+            INSERT INTO tracks_to_queue
+                (track_id)
+            SELECT t.track_id
+              FROM UNNEST($1) AS t (track_id)
+              JOIN crumb.user_track AS ut USING (track_id)
+        "#;
+        sqlx::query(&select_into_tracks_to_queue)
+            .bind(track_ids)
+            .execute(&mut tx)
+            .await?;
+
+        let insert = r#"
+            WITH max_position AS (
+                SELECT COALESCE( ROUND( MAX(position) ), 0 ) AS max_p
+                  FROM crumb.user_queue
+                 WHERE user_id = $1
+            )
+            INSERT INTO crumb.user_queue
+                ( user_id, client_id, track_id, position )
+            SELECT $1, $2, track_id, position + max_p
+              FROM tracks_to_queue, max_position
+        "#;
+        sqlx::query(&insert)
+            .bind(&user.user_id)
+            .bind(client_id)
+            .execute(&mut tx)
+            .await?;
+
+        tx.commit().await?;
+
+        Ok(self.queue_for_user(user, client_id).await?)
+    }
+
+    #[tracing::instrument]
+    pub async fn remove_from_queue_for_user(
+        &self,
+        user: &User,
+        client_id: &Uuid,
+        positions: &[String],
+    ) -> DBResult<Vec<QueueItem>> {
+        if positions.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let delete = r#"
+            DELETE FROM crumb.user_queue
+             WHERE user_id = $1
+               AND client_id = $2
+               AND position = ANY($3)
+        "#;
+        sqlx::query(&delete)
+            .bind(&user.user_id)
+            .bind(client_id)
+            .bind(positions)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(self.queue_for_user(user, client_id).await?)
+    }
+
+    #[tracing::instrument]
+    pub async fn move_queue_forward_for_user(
+        &self,
+        user: &User,
+        client_id: &Uuid,
+    ) -> DBResult<Vec<QueueItem>> {
+        let update = r#"
+            WITH current AS (
+                SELECT position
+                  FROM crumb.queue
+                 WHERE user_id = $1
+                   AND client_id = $2
+                   AND is_current
+            ), remove_current AS (
+                UPDATE crumb.queue
+                   SET is_current = false
+                 WHERE user_id = $1
+                   AND client_id = $2
+                   AND position = ( SELECT position FROM current )
+            )
+            UPDATE crumb.queue
+               SET is_current = true
+             WHERE user_id = $1
+               AND client_id = $2
+               AND position = (
+                       SELECT position
+                         FROM crumb.queue
+                        WHERE user_id = $1
+                          AND client_id = $2
+                          AND position > ( SELECT position FROM current )
+                       ORDER BY position
+                       LIMIT 1
+                   )
+        "#;
+        sqlx::query(&update)
+            .bind(&user.user_id)
+            .bind(client_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(self.queue_for_user(user, client_id).await?)
+    }
+
+    #[tracing::instrument]
+    pub async fn move_queue_backward_for_user(
+        &self,
+        user: &User,
+        client_id: &Uuid,
+    ) -> DBResult<Vec<QueueItem>> {
+        let update = r#"
+            WITH current AS (
+                SELECT position
+                  FROM crumb.queue
+                 WHERE user_id = $1
+                   AND client_id = $2
+                   AND is_current
+            ), remove_current AS (
+                UPDATE crumb.queue
+                   SET is_current = false
+                 WHERE user_id = $1
+                   AND client_id = $2
+                   AND position = ( SELECT position FROM current )
+            )
+            UPDATE crumb.queue
+               SET is_current = true
+             WHERE user_id = $1
+               AND client_id = $2
+               AND position = (
+                       SELECT position
+                         FROM crumb.queue
+                        WHERE user_id = $1
+                          AND client_id = $2
+                          AND position < ( SELECT position FROM current )
+                       ORDER BY position
+                       LIMIT 1
+                   )
+        "#;
+        sqlx::query(&update)
+            .bind(&user.user_id)
+            .bind(client_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(self.queue_for_user(user, client_id).await?)
     }
 }

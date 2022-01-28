@@ -6,7 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-channel = "~1"
 dioxus = { path = "../../dioxus", features = [ "router", "web" ] }
+gloo-storage = "~0.2"
+#grpc-web-client = { version = "~0.1", git = "https://github.com/titanous/grpc-web-client", rev = "dd15cde2f36ab10546c332a7bbcb55b1738018a5" }
 grpc-web-client = { version = "~0.1", path = "../../grpc-web-client/grpc-web-client" }
 log = "~0.4"
 prost = "~0.9"
@@ -16,7 +19,8 @@ serde_json = { version = "~1" }
 thiserror = "~1"
 tonic = { version = "~0.6", default-features = false, features = [ "codegen", "prost" ] }
 typed-builder = "~0.9"
-uuid = { version = "~0.8", features = ["v5"] }
+uuid = { version = "~0.8", features = [ "v4", "v5", "wasm-bindgen" ] }
+wasm-bindgen-futures = "~0.4"
 wasm-logger = "~0.2"
 
 [build-dependencies]

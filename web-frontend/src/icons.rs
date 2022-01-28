@@ -1,4 +1,4 @@
-use dioxus::prelude::*;
+use dioxus::{events::MouseEvent, prelude::*};
 
 // pub fn x_circle() -> IconBuilder<((SVGPath,), (), (), (), ())> {
 //     Icon::builder().path(
@@ -93,10 +93,14 @@ impl Shape {
     }
 }
 
-#[derive(PartialEq, Props)]
-pub(crate) struct IconButtonProps {
+#[derive(Props)]
+pub(crate) struct IconButtonProps<'a> {
+    #[props(default, strip_option)]
+    onclick: Option<EventHandler<'a, MouseEvent>>,
     #[props(default, strip_option)]
     class: Option<&'static str>,
+    #[props(default = false)]
+    is_inline: bool,
     #[props(default, strip_option)]
     title: Option<&'static str>,
     #[props(default = 20)]
@@ -106,18 +110,33 @@ pub(crate) struct IconButtonProps {
     #[props(default = false)]
     disabled: bool,
     shape: Shape,
+    #[props(default, strip_option)]
+    children: Option<Element<'a>>,
 }
 
-pub(crate) fn IconButton(cx: Scope<IconButtonProps>) -> Element {
+pub(crate) fn IconButton<'a>(cx: Scope<'a, IconButtonProps<'a>>) -> Element<'a> {
+    let mut class = cx.props.class.as_deref().unwrap_or("").to_string();
+    if cx.props.is_inline {
+        class.push_str(" pt-1 pb-2 pl-1 pr-3 bg-indigo-400 font-bold text-white text-lg");
+    }
     cx.render(rsx! {
         button {
-            class: format_args!("{}", cx.props.class.unwrap_or("")),
+            onclick: move |evt| if let Some(oc) = &cx.props.onclick {
+                oc.call(evt);
+            },
+            class: "{class}",
             title: format_args!("{}", cx.props.title.unwrap_or("")),
             disabled: format_args!("{}", if cx.props.disabled { "true" } else { "false" }),
             Icon {
+                is_inline: cx.props.is_inline,
                 disabled: cx.props.disabled,
                 size: cx.props.size,
+                fill: cx.props.fill,
                 shape: cx.props.shape,
+            },
+            span {
+                class: "inline-block align-middle",
+                cx.props.children.as_ref(),
             },
         },
     })
@@ -125,8 +144,8 @@ pub(crate) fn IconButton(cx: Scope<IconButtonProps>) -> Element {
 
 #[derive(PartialEq, Props)]
 pub(crate) struct IconProps {
-    #[props(default, strip_option)]
-    class: Option<&'static str>,
+    #[props(default = false)]
+    is_inline: bool,
     #[props(default = 20)]
     size: u8,
     #[props(default = "currentColor")]
@@ -143,14 +162,19 @@ pub(crate) fn Icon(cx: Scope<IconProps>) -> Element {
     } else {
         "currentColor"
     };
+    let span_class = if cx.props.is_inline { "px-1 mr-1" } else { "" };
+    let svg_class = if cx.props.is_inline { "inline-block align-middle" } else { "" };
     cx.render(rsx! {
-        svg {
-            class: format_args!("{}", cx.props.class.unwrap_or("")),
-            height: format_args!("{}", cx.props.size),
-            width: format_args!("{}", cx.props.size),
-            view_box: "0 0 20 20",
-            fill: format_args!("{}", fill),
-            cx.props.shape.path(),
+        span {
+            class: "{span_class}",
+            svg {
+                class: "{svg_class}",
+                height: format_args!("{}", cx.props.size),
+                width: format_args!("{}", cx.props.size),
+                view_box: "0 0 20 20",
+                fill: format_args!("{}", fill),
+                cx.props.shape.path(),
+            }
         }
     })
 }

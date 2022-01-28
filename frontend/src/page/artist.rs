@@ -1,5 +1,5 @@
 use crate::{
-    album_cover,
+    release_cover,
     client::{get_artist_response, ArtistItem, Client, GetArtistResponse, ReleaseListItem},
     generated::css_classes::C,
     page_styles, view_error, RemoteData,
@@ -81,7 +81,7 @@ fn one_release(release: &ReleaseListItem) -> Node<Msg> {
                 attrs! {
                     At::Href => &release.url(),
                 },
-                album_cover(release.album_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
+                release_cover(release.release_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
             ],
         ],
         div![

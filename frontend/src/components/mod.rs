@@ -14,7 +14,7 @@ pub fn release_image(
     release: &ReleaseListItem,
     classes: Option<&[&'static str]>,
 ) -> Node<Msg> {
-    let cover_uri = match &release.album_cover_uri {
+    let cover_uri = match &release.release_cover_uri {
         Some(c) => c,
         None => return Node::Empty,
     };

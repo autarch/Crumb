@@ -27,7 +27,19 @@ type GetTracksForReleaseResponseStream =
     Pin<Box<dyn Stream<Item = Result<ReleaseTrack, TonicStatus>> + Send>>;
 
 type GetQueueResult<T> = Result<Response<T>, TonicStatus>;
-type GetQueueResponseStream = Pin<Box<dyn Stream<Item = Result<ReleaseTrack, TonicStatus>> + Send>>;
+type GetQueueResponseStream = Pin<Box<dyn Stream<Item = Result<QueueItem, TonicStatus>> + Send>>;
+
+type AddToQueueResult<T> = Result<Response<T>, TonicStatus>;
+type AddToQueueResponseStream = GetQueueResponseStream;
+
+type RemoveFromQueueResult<T> = Result<Response<T>, TonicStatus>;
+type RemoveFromQueueResponseStream = GetQueueResponseStream;
+
+type MoveQueueForwardResult<T> = Result<Response<T>, TonicStatus>;
+type MoveQueueForwardResponseStream = GetQueueResponseStream;
+
+type MoveQueueBackwardResult<T> = Result<Response<T>, TonicStatus>;
+type MoveQueueBackwardResponseStream = GetQueueResponseStream;
 
 #[derive(Debug)]
 struct MyCrumb {
@@ -47,6 +59,10 @@ impl Crumb for MyCrumb {
     type GetReleasesForArtistStream = GetReleasesForArtistResponseStream;
     type GetTracksForReleaseStream = GetTracksForReleaseResponseStream;
     type GetQueueStream = GetQueueResponseStream;
+    type AddToQueueStream = AddToQueueResponseStream;
+    type RemoveFromQueueStream = RemoveFromQueueResponseStream;
+    type MoveQueueForwardStream = MoveQueueForwardResponseStream;
+    type MoveQueueBackwardStream = MoveQueueBackwardResponseStream;
 
     #[tracing::instrument]
     async fn get_artists(
@@ -141,9 +157,6 @@ impl Crumb for MyCrumb {
             );
             TonicStatus::internal("Server error")
         })?;
-        // XXX - getting a vec from the db using fetch_many the crumb_db
-        // package instead of just returning a stream is gross, but attempting
-        // to return the stream gave me all sorts of lifetime errors.
         let releases = self
             .db
             .releases_for_user_by_artist_id(&user, &artist_id)
@@ -179,9 +192,9 @@ impl Crumb for MyCrumb {
         })?;
         let release = self.db.release_for_user(&user, &release_id).await;
         match release {
-            Ok(a) => Ok(Response::new(GetReleaseResponse {
+            Ok(r) => Ok(Response::new(GetReleaseResponse {
                 response_either: Some(get_release_response::ResponseEither::Release(
-                    to_rpc_release_item_struct(a),
+                    to_rpc_release_item_struct(r),
                 )),
             })),
             Err(e) => {
@@ -229,9 +242,6 @@ impl Crumb for MyCrumb {
             );
             TonicStatus::internal("Server error")
         })?;
-        // XXX - getting a vec from the db using fetch_many the crumb_db
-        // package instead of just returning a stream is gross, but attempting
-        // to return the stream gave me all sorts of lifetime errors.
         let releases = self
             .db
             .tracks_for_user_by_release_id(&user, &release_id)
@@ -253,14 +263,25 @@ impl Crumb for MyCrumb {
     }
 
     #[tracing::instrument]
-    async fn get_queue(&self, _: Request<GetQueueRequest>) -> GetQueueResult<Self::GetQueueStream> {
+    async fn get_queue(
+        &self,
+        req: Request<GetQueueRequest>,
+    ) -> GetQueueResult<Self::GetQueueStream> {
         let user = self.get_user().await?;
-        // XXX - getting a vec from the db using fetch_many the crumb_db
-        // package instead of just returning a stream is gross, but attempting
-        // to return the stream gave me all sorts of lifetime errors.
-        let releases = self
+        let inner = req.into_inner();
+        let req_client_id = inner.client_id;
+        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                client_id = %req_client_id,
+                error = %e,
+                "error parsing client_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        let queue_items = self
             .db
-            .queue_for_user(&user)
+            .queue_for_user(&user, &client_id)
             .await
             .map_err(|e| {
                 event!(
@@ -272,9 +293,167 @@ impl Crumb for MyCrumb {
                 TonicStatus::internal("Server error")
             })?
             .into_iter()
-            .map(|a| Ok(to_rpc_release_track_struct(a)))
+            .map(|q| Ok(to_rpc_queue_item_struct(q)))
             .collect::<Vec<_>>();
-        Ok(Response::new(Box::pin(stream::iter(releases))))
+        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+    }
+
+    #[tracing::instrument]
+    async fn add_to_queue(
+        &self,
+        req: Request<AddToQueueRequest>,
+    ) -> AddToQueueResult<Self::AddToQueueStream> {
+        let user = self.get_user().await?;
+        let inner = req.into_inner();
+        let req_client_id = inner.client_id;
+        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                client_id = %req_client_id,
+                error = %e,
+                "error parsing client_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        let track_ids = inner
+            .track_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id))
+            .collect::<Result<Vec<Uuid>, uuid::Error>>()
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    error = %e,
+                    "error parsing a track_id as UUID",
+                );
+                TonicStatus::internal("Server error")
+            })?;
+        let queue_items = self
+            .db
+            .add_to_queue_for_user(&user, &client_id, &track_ids)
+            .await
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    user_id = %user.user_id.to_string(),
+                    error = %e,
+                    "error getting queue after adding tracks to it",
+                );
+                TonicStatus::internal("Server error")
+            })?
+            .into_iter()
+            .map(|q| Ok(to_rpc_queue_item_struct(q)))
+            .collect::<Vec<_>>();
+        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+    }
+
+    #[tracing::instrument]
+    async fn remove_from_queue(
+        &self,
+        req: Request<RemoveFromQueueRequest>,
+    ) -> RemoveFromQueueResult<Self::RemoveFromQueueStream> {
+        let user = self.get_user().await?;
+        let inner = req.into_inner();
+        let req_client_id = inner.client_id;
+        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                client_id = %req_client_id,
+                error = %e,
+                "error parsing client_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        let positions = inner.positions;
+        let queue_items = self
+            .db
+            .remove_from_queue_for_user(&user, &client_id, &positions)
+            .await
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    user_id = %user.user_id.to_string(),
+                    error = %e,
+                    "error getting queue after removing tracks from it",
+                );
+                TonicStatus::internal("Server error")
+            })?
+            .into_iter()
+            .map(|q| Ok(to_rpc_queue_item_struct(q)))
+            .collect::<Vec<_>>();
+        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+    }
+
+    #[tracing::instrument]
+    async fn move_queue_forward(
+        &self,
+        req: Request<MoveQueueForwardRequest>,
+    ) -> MoveQueueForwardResult<Self::MoveQueueForwardStream> {
+        let user = self.get_user().await?;
+        let inner = req.into_inner();
+        let req_client_id = inner.client_id;
+        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                client_id = %req_client_id,
+                error = %e,
+                "error parsing client_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        let queue_items = self
+            .db
+            .move_queue_forward_for_user(&user, &client_id)
+            .await
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    user_id = %user.user_id.to_string(),
+                    error = %e,
+                    "error getting queue after moving it forward",
+                );
+                TonicStatus::internal("Server error")
+            })?
+            .into_iter()
+            .map(|q| Ok(to_rpc_queue_item_struct(q)))
+            .collect::<Vec<_>>();
+        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+    }
+
+    #[tracing::instrument]
+    async fn move_queue_backward(
+        &self,
+        req: Request<MoveQueueBackwardRequest>,
+    ) -> MoveQueueBackwardResult<Self::MoveQueueBackwardStream> {
+        let user = self.get_user().await?;
+        let inner = req.into_inner();
+        let req_client_id = inner.client_id;
+        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                client_id = %req_client_id,
+                error = %e,
+                "error parsing client_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        let queue_items = self
+            .db
+            .move_queue_backward_for_user(&user, &client_id)
+            .await
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    user_id = %user.user_id.to_string(),
+                    error = %e,
+                    "error getting queue after moving it backward",
+                );
+                TonicStatus::internal("Server error")
+            })?
+            .into_iter()
+            .map(|q| Ok(to_rpc_queue_item_struct(q)))
+            .collect::<Vec<_>>();
+        Ok(Response::new(Box::pin(stream::iter(queue_items))))
     }
 }
 
@@ -314,7 +493,7 @@ fn to_rpc_artist_list_item_struct(a: crumb_db::ArtistListItem) -> ArtistListItem
         translated_sortable_name: a.translated_sortable_name.map(|sn| sn.into_string()),
         release_count: a.release_count as u32,
         track_count: a.track_count as u32,
-        album_cover_uri: a.album_cover_uri,
+        release_cover_uri: a.release_cover_uri,
     }
 }
 
@@ -345,13 +524,14 @@ fn to_rpc_release_list_item_struct(r: crumb_db::ReleaseListItem) -> ReleaseListI
         original_month: r.original_month.map(|m| m as u32),
         original_day: r.original_day.map(|d| d as u32),
         track_count: r.track_count as u32,
-        album_cover_uri: r.album_cover_uri,
+        release_cover_uri: r.release_cover_uri,
     }
 }
 
 fn to_rpc_release_item_struct(r: crumb_db::ReleaseItem) -> ReleaseItem {
     ReleaseItem {
         core: Some(to_rpc_release_list_item_struct(r.core)),
+        artist: Some(to_rpc_artist_list_item_struct(r.artist)),
         tracks: r
             .tracks
             .into_iter()
@@ -382,6 +562,19 @@ fn to_rpc_release_track_struct(t: crumb_db::ReleaseTrack) -> ReleaseTrack {
         ),
         release_id: t.release_id.to_string(),
         position: t.position as u32,
+    }
+}
+
+fn to_rpc_queue_item_struct(q: crumb_db::QueueItem) -> QueueItem {
+    QueueItem {
+        release_track: Some(to_rpc_release_track_struct(q.release_track)),
+        release_id: q.release_id.to_string(),
+        release_display_title: q.release_display_title.into_string(),
+        release_cover_uri: q.release_cover_uri,
+        artist_id: q.artist_id.to_string(),
+        artist_display_name: q.artist_display_name.into_string(),
+        queue_position: format!("{}", q.queue_position),
+        is_current: q.is_current,
     }
 }
 

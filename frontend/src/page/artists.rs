@@ -1,5 +1,5 @@
 use crate::{
-    album_cover,
+    release_cover,
     client::{ArtistListItem, Client},
     generated::css_classes::C,
     page_styles, RemoteData,
@@ -64,7 +64,7 @@ fn one_artist(artist: &ArtistListItem) -> Node<Msg> {
                 attrs! {
                     At::Href => &artist.url(),
                 },
-                album_cover(artist.album_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
+                release_cover(artist.release_cover_uri.as_deref()).map_msg(|_| Msg::DummyMsg),
             ],
         ],
         div![

@@ -5,7 +5,7 @@ dist = "dist"
 [[hooks]]
 stage = "build"
 command = "rm"
-command_arguments = ["css/tailwind_compiled.css"]
+command_arguments = ["-f", "css/tailwind_compiled.css"]
 
 [[hooks]]
 stage = "build"

@@ -3,20 +3,19 @@ use crate::{
     components::{AlbumCover, PageTitle, SubTitle, UserFacingError},
     icons::{IconButton, Shape},
     util::{format_time, maybe_plural, new_client},
-    QueueFetchResult, QueueReceiveUseFuture,
+    QueueFetchResult, QueueRecvResult,
 };
 use dioxus::{
     prelude::*,
     router::{use_route, Link},
 };
 
-#[derive(Props)]
-pub(crate) struct ReleaseProps<'a> {
-    queue: &'a QueueReceiveUseFuture,
-    queue_tx: &'a async_channel::Sender<QueueFetchResult>,
-}
-
-pub(crate) fn Release<'a>(cx: Scope<'a, ReleaseProps<'a>>) -> Element<'a> {
+#[inline_props]
+pub(crate) fn Release<'a>(
+    cx: Scope<'a>,
+    queue: &'a Option<QueueRecvResult>,
+    queue_tx: async_channel::Sender<QueueFetchResult>,
+) -> Element<'a> {
     let release_id = use_route(&cx)
         .segment::<String>("release_id")
         .expect("id parameter was not found in path somehow")
@@ -37,20 +36,20 @@ pub(crate) fn Release<'a>(cx: Scope<'a, ReleaseProps<'a>>) -> Element<'a> {
                         let len: u32 = release.tracks.iter().map(|t| t.length.unwrap_or(0)).sum();
                         let time = format_time(len);
                         let onclick = move |_| {
-                            let queue = cx.props.queue.clone();
                             let queue_tx = cx.props.queue_tx.clone();
                             let track_ids = release
                                 .tracks
                                 .iter()
-                                .map(|t| t.track_id.clone())
+                                .map(|t| {log::debug!("P = {}", t.position);t.track_id.clone()})
                                 .collect::<Vec<_>>();
                             log::debug!("add to queue: {:?}", track_ids);
                             cx.spawn(async move {
                                 log::debug!("calling add_to_queue");
                                 let new_queue = new_client().add_to_queue(track_ids).await;
                                 log::debug!("got queue back from add_to_queue");
-                                queue_tx.send(new_queue).await;
-                                queue.restart();
+                                if let Err(e) = queue_tx.send(new_queue).await {
+                                    log::error!("Error sending add to queue result to channel: {}", e);
+                                }
                             });
                         };
                         rsx! {

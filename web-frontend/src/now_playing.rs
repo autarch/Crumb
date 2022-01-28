@@ -3,14 +3,14 @@ use crate::{
     components::AlbumCover,
     css,
     icons::{IconButton, Shape},
-    QueueFetchResult, QueueReceiveUseFuture,
+    QueueFetchResult, QueueRecvResult,
 };
 use dioxus::prelude::*;
 
 #[inline_props]
 pub(crate) fn NowPlaying<'a>(
     cx: Scope,
-    queue: &'a QueueReceiveUseFuture,
+    queue: &'a Option<QueueRecvResult>,
     queue_tx: async_channel::Sender<QueueFetchResult>,
     is_playing: &'a UseState<bool>,
 ) -> Element {
@@ -49,73 +49,73 @@ pub(crate) fn NowPlaying<'a>(
 #[inline_props]
 fn CurrentTrack<'a>(
     cx: Scope,
-    queue: &'a QueueReceiveUseFuture,
+    queue: &'a Option<QueueRecvResult>,
     is_playing: &'a UseState<bool>,
 ) -> Element {
-    let content = match queue.value() {
-        Some(queue) => match queue {
-            Ok(queue) => match queue {
-                Ok(queue) => match queue.is_empty() {
-                    true => rsx! {
-                        div {
-                            class: "col-span-6",
-                            "Queue is empty",
-                        },
-                    },
-                    false => {
-                        let item = queue.current_item();
-                        rsx! {
-                            div {
-                                AlbumCover {
-                                    uri: item.release_cover_uri.as_deref(),
-                                    size: 50,
-                                },
-                            },
-                            div {
-                                class: "col-span-3",
-                                CurrentTrackItem { item: item },
-                            },
-                            div {
-                                class: "col-span-2",
-                                ThumbButtons { },
-                            },
-                        }
-                    }
-                },
-                Err(e) => {
-                    log::error!("Error loading queue: {}", e);
-                    rsx! {
-                        div {
-                            class: "col-span-6",
-                            "Error loading queue"
-                        },
-                    }
-                }
-            },
-            Err(e) => {
-                log::error!("Error getting message from channel: {}", e);
-                rsx! {
-                    div {
-                        class: "col-span-6",
-                        "Error getting message from channel"
-                    },
-                }
-            }
-        },
-        None => {
-            rsx! {
-                div {
-                    class: "col-span-6",
-                    "Loading queue ..."
-                },
-            }
-        }
-    };
+    // let content = match queue.value() {
+    //     Some(queue) => match queue {
+    //         Ok(queue) => match queue {
+    //             Ok(queue) => match queue.is_empty() {
+    //                 true => rsx! {
+    //                     div {
+    //                         class: "col-span-6",
+    //                         "Queue is empty",
+    //                     },
+    //                 },
+    //                 false => {
+    //                     let item = queue.current_item();
+    //                     rsx! {
+    //                         div {
+    //                             AlbumCover {
+    //                                 uri: item.release_cover_uri.as_deref(),
+    //                                 size: 50,
+    //                             },
+    //                         },
+    //                         div {
+    //                             class: "col-span-3",
+    //                             CurrentTrackItem { item: item },
+    //                         },
+    //                         div {
+    //                             class: "col-span-2",
+    //                             ThumbButtons { },
+    //                         },
+    //                     }
+    //                 }
+    //             },
+    //             Err(e) => {
+    //                 log::error!("Error loading queue: {}", e);
+    //                 rsx! {
+    //                     div {
+    //                         class: "col-span-6",
+    //                         "Error loading queue"
+    //                     },
+    //                 }
+    //             }
+    //         },
+    //         Err(e) => {
+    //             log::error!("Error getting message from channel: {}", e);
+    //             rsx! {
+    //                 div {
+    //                     class: "col-span-6",
+    //                     "Error getting message from channel"
+    //                 },
+    //             }
+    //         }
+    //     },
+    //     None => {
+    //         rsx! {
+    //             div {
+    //                 class: "col-span-6",
+    //                 "Loading queue ..."
+    //             },
+    //         }
+    //     }
+    // };
 
     cx.render(rsx! {
         div {
             class: "grid grid-cols-6 gap-6 place-content-center items-center",
-            content
+            "content",
         }
     })
 }

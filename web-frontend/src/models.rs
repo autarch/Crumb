@@ -14,8 +14,8 @@ impl Queue {
         }
     }
 
-    pub fn current_item(&self) -> &QueueItem {
-        &self.items[self.current]
+    pub fn current_item(&self) -> Option<&QueueItem> {
+        self.items.get(self.current)
     }
 
     pub fn visible_items(&self) -> Option<impl Iterator<Item = &QueueItem>> {

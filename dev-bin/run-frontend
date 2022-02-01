@@ -1,0 +1,13 @@
+#!/bin/sh
+
+cd web-frontend
+trunk -v serve \
+    --watch .. \
+    --watch ../../dioxus/ \
+    --watch ../../grpc-web-client/ \
+    --watch ../../dioxus-heroicons/ \
+    --ignore ../target/ \
+    --ignore ../../dioxus/target \
+    --ignore ../../dioxus-heroicons/target/ \
+    --ignore ./css/tailwind_compiled.css \
+    --ignore ../.log

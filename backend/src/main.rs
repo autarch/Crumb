@@ -64,7 +64,7 @@ impl Crumb for MyCrumb {
     type MoveQueueForwardStream = MoveQueueForwardResponseStream;
     type MoveQueueBackwardStream = MoveQueueBackwardResponseStream;
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn get_artists(
         &self,
         _: Request<GetArtistsRequest>,
@@ -92,7 +92,7 @@ impl Crumb for MyCrumb {
         Ok(Response::new(Box::pin(stream::iter(artists))))
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn get_artist(&self, req: Request<GetArtistRequest>) -> GetArtistResult {
         let user = self.get_user().await?;
         let req_artist_id = req.into_inner().artist_id;
@@ -141,7 +141,7 @@ impl Crumb for MyCrumb {
         }
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn get_releases_for_artist(
         &self,
         req: Request<GetReleasesForArtistRequest>,
@@ -177,7 +177,7 @@ impl Crumb for MyCrumb {
         Ok(Response::new(Box::pin(stream::iter(releases))))
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn get_release(&self, req: Request<GetReleaseRequest>) -> GetReleaseResult {
         let user = self.get_user().await?;
         let req_release_id = req.into_inner().release_id;
@@ -226,7 +226,7 @@ impl Crumb for MyCrumb {
         }
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn get_tracks_for_release(
         &self,
         req: Request<GetTracksForReleaseRequest>,
@@ -262,7 +262,7 @@ impl Crumb for MyCrumb {
         Ok(Response::new(Box::pin(stream::iter(releases))))
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn get_queue(
         &self,
         req: Request<GetQueueRequest>,
@@ -298,7 +298,7 @@ impl Crumb for MyCrumb {
         Ok(Response::new(Box::pin(stream::iter(queue_items))))
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn add_to_queue(
         &self,
         req: Request<AddToQueueRequest>,
@@ -347,7 +347,7 @@ impl Crumb for MyCrumb {
         Ok(Response::new(Box::pin(stream::iter(queue_items))))
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn remove_from_queue(
         &self,
         req: Request<RemoveFromQueueRequest>,
@@ -384,7 +384,7 @@ impl Crumb for MyCrumb {
         Ok(Response::new(Box::pin(stream::iter(queue_items))))
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn move_queue_forward(
         &self,
         req: Request<MoveQueueForwardRequest>,
@@ -420,7 +420,7 @@ impl Crumb for MyCrumb {
         Ok(Response::new(Box::pin(stream::iter(queue_items))))
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn move_queue_backward(
         &self,
         req: Request<MoveQueueBackwardRequest>,
@@ -555,7 +555,7 @@ fn to_rpc_release_track_struct(t: crumb_db::ReleaseTrack) -> ReleaseTrack {
         translated_title: t.translated_title.map(|t| t.into_string()),
         length: t.length.map(|l| l as u32),
         track_audio_uri: format!(
-            "https://localhost:13713/audio/{}/{}/{}",
+            "http://localhost:7137/audio/{}/{}/{}",
             &hash[0..1],
             &hash[0..2],
             hash,

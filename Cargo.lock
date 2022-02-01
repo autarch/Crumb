@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "dioxus"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "dioxus-core",
  "dioxus-core-macro",
@@ -578,7 +578,7 @@ dependencies = [
 
 [[package]]
 name = "dioxus-core"
-version = "0.1.7"
+version = "0.1.9"
 dependencies = [
  "backtrace",
  "bumpalo",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "dioxus-core-macro"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "once_cell",
  "proc-macro-error",
@@ -605,22 +605,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "dioxus-heroicons"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+]
+
+[[package]]
 name = "dioxus-hooks"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "dioxus-core",
 ]
 
 [[package]]
 name = "dioxus-html"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "dioxus-core",
 ]
 
 [[package]]
 name = "dioxus-router"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dioxus-core",
  "dioxus-core-macro",
@@ -637,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "dioxus-web"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3272,6 +3279,7 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "dioxus",
+ "dioxus-heroicons",
  "gloo-storage",
  "grpc-web-client",
  "log",
@@ -3284,7 +3292,9 @@ dependencies = [
  "tonic-build",
  "typed-builder",
  "uuid",
+ "wasm-bindgen",
  "wasm-logger",
+ "web-sys",
 ]
 
 [[package]]

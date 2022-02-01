@@ -1,12 +1,19 @@
 use crate::{
-    client::ArtistListItem,
+    client::{self, ArtistListItem},
     components::AlbumCover,
+    storage,
     util::{maybe_plural, new_client},
 };
 use dioxus::{prelude::*, router::Link};
 
 pub(crate) fn Artists<'a>(cx: Scope) -> Element {
-    let artists = use_future(&cx, || async move { new_client().get_artists().await });
+    let artists = use_future(&cx, || {
+        let mut client = new_client(
+            *cx.consume_context::<storage::Store>()
+                .expect("Could not get Store from context"),
+        );
+        async move { client.get_artists().await }
+    });
     cx.render(rsx! {
         match artists.value() {
             Some(Ok(artists)) => rsx! {

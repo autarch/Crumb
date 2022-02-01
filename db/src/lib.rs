@@ -110,7 +110,7 @@ impl DB {
         })
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn get_or_insert_user<E: AsRef<str> + std::fmt::Debug>(
         &self,
         email: E,
@@ -136,7 +136,7 @@ impl DB {
         .map_err(|e| e.into())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn get_user<E: AsRef<str> + std::fmt::Debug>(
         &self,
         email: E,
@@ -158,7 +158,7 @@ impl DB {
         Ok(user)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn best_matches_for_tracks(
         &self,
         tracks: &[&TrackInfo],
@@ -213,7 +213,7 @@ impl DB {
         Ok(album)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn match_track_gids(
         &self,
         track_ids: &[Uuid],
@@ -231,7 +231,7 @@ impl DB {
         Ok(album)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn insert_user_tracks(
         &self,
         user_id: &Uuid,
@@ -281,7 +281,7 @@ impl DB {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn insert_artist(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -375,7 +375,7 @@ impl DB {
         Ok(artist)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn artist_names_and_aliases(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -475,7 +475,7 @@ impl DB {
         Ok(mb_artist_names)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn insert_release(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -599,7 +599,7 @@ impl DB {
         Ok(release)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn release_names_and_aliases_with_siblings(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -628,7 +628,7 @@ impl DB {
         Ok(mb_release_names)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn release_names_and_aliases(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -730,7 +730,7 @@ impl DB {
         Ok(sibling_names)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     async fn insert_user_track(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -783,7 +783,7 @@ impl DB {
         Ok(())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn artists_for_user(&self, user: &User) -> DBResult<Vec<ArtistListItem>> {
         let select = format!(
             r#"
@@ -817,7 +817,7 @@ impl DB {
             .map_err(|e| e.into())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn artist_for_user(&self, user: &User, artist_id: &Uuid) -> DBResult<ArtistItem> {
         let select = format!(
             r#"
@@ -897,7 +897,7 @@ impl DB {
             .map_err(|e| e.into())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn release_for_user(&self, user: &User, release_id: &Uuid) -> DBResult<ReleaseItem> {
         let select = format!(
             r#"
@@ -943,7 +943,7 @@ impl DB {
         })
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn tracks_for_user_by_release_id(
         &self,
         user: &User,
@@ -980,7 +980,7 @@ impl DB {
             .map_err(|e| e.into())
     }
 
-    //    #[tracing::instrument]
+    //    #[tracing::instrument(skip(self))]
     pub async fn queue_for_user(&self, user: &User, client_id: &Uuid) -> DBResult<Vec<QueueItem>> {
         let select = format!(
             r#"
@@ -1049,7 +1049,7 @@ impl DB {
             .collect::<Vec<_>>())
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn add_to_queue_for_user(
         &self,
         user: &User,
@@ -1064,22 +1064,33 @@ impl DB {
         let create = r#"
             CREATE TEMPORARY TABLE tracks_to_queue (
                 track_id  UUID  NOT NULL,
-                position  SERIAL
-            )
+                position  INT  NOT NULL
+            ) ON COMMIT DROP
         "#;
         tx.execute(create).await?;
 
-        let select_into_tracks_to_queue = r#"
-            INSERT INTO tracks_to_queue
-                (track_id)
-            SELECT t.track_id
-              FROM UNNEST($1) AS t (track_id)
-              JOIN crumb.user_track AS ut USING (track_id)
-        "#;
-        sqlx::query(&select_into_tracks_to_queue)
-            .bind(track_ids)
-            .execute(&mut tx)
-            .await?;
+        let values = track_ids
+            .iter()
+            .enumerate()
+            .map(|(p, _)| format!("(${}, ${})", (p * 2) + 1, (p * 2) + 2))
+            .collect::<Vec<_>>();
+        let select_into_tracks_to_queue = format!(
+            r#"
+                INSERT INTO tracks_to_queue
+                    (track_id, position)
+                VALUES
+                    {}
+            "#,
+            values.join(",\n    ")
+        );
+        let mut query = sqlx::query(&select_into_tracks_to_queue);
+        for (p, id) in track_ids.iter().enumerate() {
+            // We need to add one to p because when we do our insert later, we
+            // add p to the max position in the current queue. If p is 0 then
+            // we end up trying to insert a duplicate position into the queue.
+            query = query.bind(id).bind((p + 1) as i32);
+        }
+        query.execute(&mut tx).await?;
 
         let insert = r#"
             WITH max_position AS (
@@ -1098,12 +1109,45 @@ impl DB {
             .execute(&mut tx)
             .await?;
 
+        let update = r#"
+            WITH current_position AS (
+                SELECT position AS current_position
+                  FROM crumb.user_queue
+                 WHERE user_id = $1
+                   AND client_id = $2
+                   AND is_current
+            ), min_position AS (
+                SELECT MIN(position) AS min_position
+                  FROM crumb.user_queue
+                 WHERE user_id = $1
+                   AND client_id = $2
+                GROUP BY ( user_id, client_id )
+            )
+            UPDATE crumb.user_queue
+               SET is_current = true
+             WHERE position = (
+                       SELECT MAX(position)
+                         FROM (
+                                  SELECT current_position AS position
+                                    FROM current_position
+                                   UNION
+                                  SELECT min_position AS position
+                                    FROM min_position
+                              ) AS p
+                   )
+        "#;
+        sqlx::query(&update)
+            .bind(&user.user_id)
+            .bind(client_id)
+            .execute(&mut tx)
+            .await?;
+
         tx.commit().await?;
 
         Ok(self.queue_for_user(user, client_id).await?)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn remove_from_queue_for_user(
         &self,
         user: &User,
@@ -1130,7 +1174,7 @@ impl DB {
         Ok(self.queue_for_user(user, client_id).await?)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn move_queue_forward_for_user(
         &self,
         user: &User,
@@ -1139,24 +1183,24 @@ impl DB {
         let update = r#"
             WITH current AS (
                 SELECT position
-                  FROM crumb.queue
+                  FROM crumb.user_queue
                  WHERE user_id = $1
                    AND client_id = $2
                    AND is_current
             ), remove_current AS (
-                UPDATE crumb.queue
+                UPDATE crumb.user_queue
                    SET is_current = false
                  WHERE user_id = $1
                    AND client_id = $2
                    AND position = ( SELECT position FROM current )
             )
-            UPDATE crumb.queue
+            UPDATE crumb.user_queue
                SET is_current = true
              WHERE user_id = $1
                AND client_id = $2
                AND position = (
                        SELECT position
-                         FROM crumb.queue
+                         FROM crumb.user_queue
                         WHERE user_id = $1
                           AND client_id = $2
                           AND position > ( SELECT position FROM current )
@@ -1173,7 +1217,7 @@ impl DB {
         Ok(self.queue_for_user(user, client_id).await?)
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn move_queue_backward_for_user(
         &self,
         user: &User,
@@ -1182,28 +1226,28 @@ impl DB {
         let update = r#"
             WITH current AS (
                 SELECT position
-                  FROM crumb.queue
+                  FROM crumb.user_queue
                  WHERE user_id = $1
                    AND client_id = $2
                    AND is_current
             ), remove_current AS (
-                UPDATE crumb.queue
+                UPDATE crumb.user_queue
                    SET is_current = false
                  WHERE user_id = $1
                    AND client_id = $2
                    AND position = ( SELECT position FROM current )
             )
-            UPDATE crumb.queue
+            UPDATE crumb.user_queue
                SET is_current = true
              WHERE user_id = $1
                AND client_id = $2
                AND position = (
                        SELECT position
-                         FROM crumb.queue
+                         FROM crumb.user_queue
                         WHERE user_id = $1
                           AND client_id = $2
                           AND position < ( SELECT position FROM current )
-                       ORDER BY position
+                       ORDER BY position DESC
                        LIMIT 1
                    )
         "#;

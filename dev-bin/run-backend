@@ -1,0 +1,4 @@
+#!/bin/sh
+
+export DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@localhost/crumb"
+cargo watch -w ./backend/ -w ./db/ -w ./rpc-proto/ -- sh -c "rm -fr target/debug/build/backend-* && cargo run --package backend"

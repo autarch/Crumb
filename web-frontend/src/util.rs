@@ -1,5 +1,4 @@
-use crate::client::Client;
-use gloo_storage::{LocalStorage, Storage};
+use crate::{client::Client, storage};
 use uuid::Uuid;
 
 pub(crate) fn format_time(time: u32) -> String {
@@ -21,14 +20,17 @@ pub(crate) fn maybe_plural(count: u32, noun: &'static str) -> String {
     }
 }
 
-pub(crate) fn new_client() -> Client<grpc_web_client::Client> {
-    let id = match LocalStorage::get("client-id") {
-        Ok(id) => id,
-        Err(_) => {
+pub(crate) fn new_client(s: storage::Store) -> Client<grpc_web_client::Client> {
+    let id = match s.get("client-id") {
+        Ok(Some(id)) => id,
+        Ok(None) => {
             let id = new_id();
-            LocalStorage::set("client-id", &id)
+            s.set("client-id", &id)
                 .expect("Could not set client-id key in local storage");
             id
+        }
+        Err(e) => {
+            panic!("unreachable")
         }
     };
     Client::new(id)

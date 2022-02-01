@@ -1,8 +1,6 @@
-use crate::{
-    css,
-    icons::{IconButton, Shape},
-};
+use crate::css;
 use dioxus::{prelude::*, router::*};
+use dioxus_heroicons::{solid::Shape, IconButton};
 
 pub(crate) fn Menu(cx: Scope) -> Element {
     let classes = &[
@@ -57,7 +55,7 @@ pub(crate) fn HamburgerButton(cx: Scope) -> Element {
             IconButton {
                 class: "flex items-center py-2 mr-8",
                 title: "Navigation",
-                shape: Shape::Hamburger,
+                icon: Shape::Menu
             },
         },
     })
@@ -96,7 +94,7 @@ pub(crate) fn MenuItems(cx: Scope) -> Element {
                     class: "inline-block leading-none",
                     title: "Your settings",
                     size: 30,
-                    shape: Shape::Cog,
+                    icon: Shape::Cog,
                 },
             },
         },

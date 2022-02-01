@@ -1,6 +1,7 @@
 use crate::{
     client::{get_artist_response, ReleaseListItem},
     components::{AlbumCover, PageTitle, UserFacingError},
+    storage,
     util::{maybe_plural, new_client},
 };
 use dioxus::{
@@ -13,10 +14,13 @@ pub(crate) fn Artist<'a>(cx: Scope) -> Element {
         .segment::<String>("artist_id")
         .expect("id parameter was not found in path somehow")
         .expect("id parameter could not be parsed as a String");
-    let artist = use_future(
-        &cx,
-        || async move { new_client().get_artist(&artist_id).await },
-    );
+    let artist = use_future(&cx, || {
+        let mut client = new_client(
+            *cx.consume_context::<storage::Store>()
+                .expect("Could not get Store from context"),
+        );
+        async move { client.get_artist(&artist_id).await }
+    });
     cx.render(rsx! {
         match artist.value() {
             Some(Ok(response)) => {

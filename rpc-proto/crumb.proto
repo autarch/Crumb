@@ -306,15 +306,31 @@ message MoveQueueBackwardRequest {
     string client_id = 1;
 }
 
+message LikeTrackRequest {
+    string track_id = 1;
+}
+
+message DislikeTrackRequest {
+    string track_id = 1;
+}
+
+message LikeOrDislikeTrackResponse {}
+
 service Crumb {
     rpc GetArtists (GetArtistsRequest) returns (stream ArtistListItem);
     rpc GetArtist (GetArtistRequest) returns (GetArtistResponse);
     rpc GetReleasesForArtist (GetReleasesForArtistRequest) returns (stream ReleaseListItem);
     rpc GetRelease (GetReleaseRequest) returns (GetReleaseResponse);
     rpc GetTracksForRelease (GetTracksForReleaseRequest) returns (stream ReleaseTrack);
+
     rpc GetQueue (GetQueueRequest) returns (stream QueueItem);
+
     rpc AddToQueue (AddToQueueRequest) returns (stream QueueItem);
     rpc RemoveFromQueue (RemoveFromQueueRequest) returns (stream QueueItem);
+
     rpc MoveQueueForward (MoveQueueForwardRequest) returns (stream QueueItem);
     rpc MoveQueueBackward (MoveQueueBackwardRequest) returns (stream QueueItem);
+
+    rpc LikeTrack (LikeTrackRequest) returns (LikeOrDislikeTrackResponse);
+    rpc DislikeTrack (DislikeTrackRequest) returns (LikeOrDislikeTrackResponse);
 }

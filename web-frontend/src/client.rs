@@ -129,6 +129,20 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
+    pub async fn like_track(&mut self, track_id: String) -> Result<(), Error> {
+        self.grpc_client
+            .like_track(tonic::Request::new(LikeTrackRequest { track_id }))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn dislike_track(&mut self, track_id: String) -> Result<(), Error> {
+        self.grpc_client
+            .dislike_track(tonic::Request::new(DislikeTrackRequest { track_id }))
+            .await?;
+        Ok(())
+    }
+
     async fn queue_items_from_stream(
         &mut self,
         req: Result<tonic::Response<tonic::codec::Streaming<QueueItem>>, tonic::Status>,

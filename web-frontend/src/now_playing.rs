@@ -42,7 +42,6 @@ pub(crate) fn NowPlaying<'a>(
                             class: "col-span-3 text-left",
                             CurrentTrack {
                                 queue: queue,
-                                is_playing: is_playing,
                             },
                         },
                         div {
@@ -134,7 +133,7 @@ pub(crate) fn NowPlaying<'a>(
 }
 
 #[inline_props]
-fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue, is_playing: &'a bool) -> Element {
+fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue) -> Element {
     let content = match queue.is_empty() {
         true => rsx! {
             div {
@@ -153,11 +152,15 @@ fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue, is_playing: &'a bool) -> Elemen
                 },
                 div {
                     class: "col-span-2",
-                    CurrentTrackItem { item: item },
+                    CurrentTrackItem {
+                        item: item,
+                    },
                 },
                 div {
                     class: "col-span-3",
-                    ThumbButtons { queue: queue },
+                    ThumbButtons {
+                        queue: queue,
+                    },
                 },
             }
         }
@@ -199,9 +202,50 @@ fn CurrentTrackItem<'a>(cx: Scope, item: &'a QueueItem) -> Element<'a> {
 
 #[inline_props]
 fn ThumbButtons<'a>(cx: Scope, queue: &'a Queue) -> Element {
-    let up_onclick = move |_| {};
-    let down_onclick = move |_| {};
     let disabled = queue.is_empty();
+
+    let up_onclick = move |_| {
+        if disabled {
+            return;
+        }
+        let current_track_id = queue
+            .current_item()
+            .as_ref()
+            .unwrap()
+            .release_track
+            .as_ref()
+            .unwrap()
+            .track_id
+            .clone();
+        let store = cx
+            .consume_context::<storage::Store>()
+            .expect("Could not get Store from context");
+        cx.spawn(async move {
+            let response = new_client(*store).like_track(current_track_id).await;
+        });
+    };
+
+    let down_onclick = move |_| {
+        if disabled {
+            return;
+        }
+        let current_track_id = queue
+            .current_item()
+            .as_ref()
+            .unwrap()
+            .release_track
+            .as_ref()
+            .unwrap()
+            .track_id
+            .clone();
+        let store = cx
+            .consume_context::<storage::Store>()
+            .expect("Could not get Store from context");
+        cx.spawn(async move {
+            let response = new_client(*store).dislike_track(current_track_id).await;
+        });
+    };
+
     cx.render(rsx! {
         IconButton {
             onclick: up_onclick,
@@ -261,11 +305,11 @@ fn PreviousButton<'a>(
     let onclick = move |_| {
         to_owned![queue_tx];
         let should_play = **is_playing;
-        let s = cx
+        let store = cx
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
         cx.spawn(async move {
-            let new_queue = new_client(*s).move_queue_backward().await;
+            let new_queue = new_client(*store).move_queue_backward().await;
             if let Err(e) = queue_tx.send(new_queue).await {
                 log::error!("Error sending move queue backward result to channel: {}", e);
             }

@@ -41,16 +41,12 @@ type MoveQueueForwardResponseStream = GetQueueResponseStream;
 type MoveQueueBackwardResult<T> = Result<Response<T>, TonicStatus>;
 type MoveQueueBackwardResponseStream = GetQueueResponseStream;
 
+type LikeTrackResult = Result<Response<LikeOrDislikeTrackResponse>, TonicStatus>;
+type DislikeTrackResult = Result<Response<LikeOrDislikeTrackResponse>, TonicStatus>;
+
 #[derive(Debug)]
 struct MyCrumb {
     db: DB,
-}
-
-impl MyCrumb {
-    async fn new<U: AsRef<str>>(db_uri: U) -> Result<Self> {
-        let db = DB::new(db_uri.as_ref()).await?;
-        Ok(Self { db })
-    }
 }
 
 #[tonic::async_trait]
@@ -455,9 +451,72 @@ impl Crumb for MyCrumb {
             .collect::<Vec<_>>();
         Ok(Response::new(Box::pin(stream::iter(queue_items))))
     }
+
+    #[tracing::instrument(skip(self))]
+    async fn like_track(&self, req: Request<LikeTrackRequest>) -> LikeTrackResult {
+        let user = self.get_user().await?;
+        let req_track_id = req.into_inner().track_id;
+        let track_id = Uuid::parse_str(&req_track_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                track_id = %req_track_id,
+                error = %e,
+                "error parsing track_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        self.db
+            .add_upvote_for_user(&user, &track_id)
+            .await
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    user_id = %user.user_id.to_string(),
+                    track_id_id = %track_id.to_string(),
+                    error = %e,
+                    "error adding downvote for user and track",
+                );
+                TonicStatus::internal("Server error")
+            })?;
+        Ok(Response::new(LikeOrDislikeTrackResponse {}))
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn dislike_track(&self, req: Request<DislikeTrackRequest>) -> DislikeTrackResult {
+        let user = self.get_user().await?;
+        let req_track_id = req.into_inner().track_id;
+        let track_id = Uuid::parse_str(&req_track_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                track_id = %req_track_id,
+                error = %e,
+                "error parsing track_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        self.db
+            .add_downvote_for_user(&user, &track_id)
+            .await
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    user_id = %user.user_id.to_string(),
+                    track_id_id = %track_id.to_string(),
+                    error = %e,
+                    "error adding upvote for user and track",
+                );
+                TonicStatus::internal("Server error")
+            })?;
+        Ok(Response::new(LikeOrDislikeTrackResponse {}))
+    }
 }
 
 impl MyCrumb {
+    async fn new<U: AsRef<str>>(db_uri: U) -> Result<Self> {
+        let db = DB::new(db_uri.as_ref()).await?;
+        Ok(Self { db })
+    }
+
     async fn get_user(&self) -> Result<User, TonicStatus> {
         // XXX - need to get this from request somehow
         let email = "autarch@urth.org";

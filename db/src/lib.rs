@@ -1259,4 +1259,36 @@ impl DB {
 
         Ok(self.queue_for_user(user, client_id).await?)
     }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn add_upvote_for_user(&self, user: &User, track_id: &Uuid) -> DBResult<()> {
+        let update = r#"
+            UPDATE crumb.user_track
+               SET upvotes = upvotes + 1
+             WHERE user_id = $1
+               AND track_id = $2
+        "#;
+        sqlx::query(&update)
+            .bind(&user.user_id)
+            .bind(track_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn add_downvote_for_user(&self, user: &User, track_id: &Uuid) -> DBResult<()> {
+        let update = r#"
+            UPDATE crumb.user_track
+               SET downvotes = downvotes + 1
+             WHERE user_id = $1
+               AND track_id = $2
+        "#;
+        sqlx::query(&update)
+            .bind(&user.user_id)
+            .bind(track_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

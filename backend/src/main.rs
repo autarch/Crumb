@@ -32,6 +32,9 @@ type GetQueueResponseStream = Pin<Box<dyn Stream<Item = Result<QueueItem, TonicS
 type AddToQueueResult<T> = Result<Response<T>, TonicStatus>;
 type AddToQueueResponseStream = GetQueueResponseStream;
 
+type ReplaceQueueResult<T> = Result<Response<T>, TonicStatus>;
+type ReplaceQueueResponseStream = GetQueueResponseStream;
+
 type RemoveFromQueueResult<T> = Result<Response<T>, TonicStatus>;
 type RemoveFromQueueResponseStream = GetQueueResponseStream;
 
@@ -55,8 +58,11 @@ impl Crumb for MyCrumb {
     type GetReleasesForArtistStream = GetReleasesForArtistResponseStream;
     type GetTracksForReleaseStream = GetTracksForReleaseResponseStream;
     type GetQueueStream = GetQueueResponseStream;
+
     type AddToQueueStream = AddToQueueResponseStream;
+    type ReplaceQueueStream = ReplaceQueueResponseStream;
     type RemoveFromQueueStream = RemoveFromQueueResponseStream;
+
     type MoveQueueForwardStream = MoveQueueForwardResponseStream;
     type MoveQueueBackwardStream = MoveQueueBackwardResponseStream;
 
@@ -334,6 +340,55 @@ impl Crumb for MyCrumb {
                     user_id = %user.user_id.to_string(),
                     error = %e,
                     "error getting queue after adding tracks to it",
+                );
+                TonicStatus::internal("Server error")
+            })?
+            .into_iter()
+            .map(|q| Ok(to_rpc_queue_item_struct(q)))
+            .collect::<Vec<_>>();
+        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn replace_queue(
+        &self,
+        req: Request<ReplaceQueueRequest>,
+    ) -> ReplaceQueueResult<Self::ReplaceQueueStream> {
+        let user = self.get_user().await?;
+        let inner = req.into_inner();
+        let req_client_id = inner.client_id;
+        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
+            event!(
+                Level::ERROR,
+                client_id = %req_client_id,
+                error = %e,
+                "error parsing client_id as UUID",
+            );
+            TonicStatus::internal("Server error")
+        })?;
+        let track_ids = inner
+            .track_ids
+            .iter()
+            .map(|id| Uuid::parse_str(id))
+            .collect::<Result<Vec<Uuid>, uuid::Error>>()
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    error = %e,
+                    "error parsing a track_id as UUID",
+                );
+                TonicStatus::internal("Server error")
+            })?;
+        let queue_items = self
+            .db
+            .replace_queue_for_user(&user, &client_id, &track_ids)
+            .await
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    user_id = %user.user_id.to_string(),
+                    error = %e,
+                    "error getting queue after replacing it",
                 );
                 TonicStatus::internal("Server error")
             })?

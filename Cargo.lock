@@ -626,6 +626,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "dioxus-interpreter-js"
+version = "0.0.0"
+
+[[package]]
 name = "dioxus-router"
 version = "0.1.1"
 dependencies = [
@@ -651,6 +655,7 @@ dependencies = [
  "console_error_panic_hook",
  "dioxus-core",
  "dioxus-html",
+ "dioxus-interpreter-js",
  "futures-util",
  "fxhash",
  "gloo-timers",

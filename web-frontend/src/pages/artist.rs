@@ -12,8 +12,8 @@ use dioxus::{
 pub(crate) fn Artist<'a>(cx: Scope) -> Element {
     let artist_id = use_route(&cx)
         .segment::<String>("artist_id")
-        .expect("id parameter was not found in path somehow")
-        .expect("id parameter could not be parsed as a String");
+        .expect("artist_id parameter was not found in path somehow")
+        .expect("artist_id parameter could not be parsed as a String");
     let artist = use_future(&cx, || {
         let mut client = new_client(
             *cx.consume_context::<storage::Store>()

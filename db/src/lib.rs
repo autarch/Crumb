@@ -1061,6 +1061,55 @@ impl DB {
         }
 
         let mut tx = self.pool.begin().await?;
+        let queue = self
+            .add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
+            .await?;
+        tx.commit().await?;
+        Ok(queue)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn replace_queue_for_user(
+        &self,
+        user: &User,
+        client_id: &Uuid,
+        track_ids: &[Uuid],
+    ) -> DBResult<Vec<QueueItem>> {
+        if track_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        let delete = r#"
+            DELETE
+              FROM crumb.user_queue
+             WHERE user_id = $1
+               AND client_id = $2
+        "#;
+        sqlx::query(delete)
+            .bind(&user.user_id)
+            .bind(&client_id)
+            .execute(&mut tx)
+            .await?;
+
+        let queue = self
+            .add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
+            .await?;
+
+        tx.commit().await?;
+
+        Ok(queue)
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn add_to_queue_for_user_in_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        user: &User,
+        client_id: &Uuid,
+        track_ids: &[Uuid],
+    ) -> DBResult<Vec<QueueItem>> {
         let create = r#"
             CREATE TEMPORARY TABLE tracks_to_queue (
                 track_id  UUID  NOT NULL,
@@ -1090,7 +1139,7 @@ impl DB {
             // we end up trying to insert a duplicate position into the queue.
             query = query.bind(id).bind((p + 1) as i32);
         }
-        query.execute(&mut tx).await?;
+        query.execute(&mut *tx).await?;
 
         let insert = r#"
             WITH max_position AS (
@@ -1106,7 +1155,7 @@ impl DB {
         sqlx::query(&insert)
             .bind(&user.user_id)
             .bind(client_id)
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
 
         let update = r#"
@@ -1139,10 +1188,8 @@ impl DB {
         sqlx::query(&update)
             .bind(&user.user_id)
             .bind(client_id)
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await?;
-
-        tx.commit().await?;
 
         Ok(self.queue_for_user(user, client_id).await?)
     }

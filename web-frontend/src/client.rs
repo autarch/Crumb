@@ -98,6 +98,17 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
+    pub async fn replace_queue(&mut self, track_ids: Vec<String>) -> Result<Queue, Error> {
+        let res = self
+            .grpc_client
+            .replace_queue(tonic::Request::new(ReplaceQueueRequest {
+                client_id: self.client_id.clone(),
+                track_ids,
+            }))
+            .await;
+        self.queue_items_from_stream(res).await
+    }
+
     pub async fn remove_from_queue(&mut self, positions: Vec<String>) -> Result<Queue, Error> {
         let res = self
             .grpc_client

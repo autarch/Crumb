@@ -298,6 +298,11 @@ message RemoveFromQueueRequest {
     string client_id = 2;
 }
 
+message ReplaceQueueRequest {
+    repeated string track_ids = 1;
+    string client_id = 2;
+}
+
 message MoveQueueForwardRequest {
     string client_id = 1;
 }
@@ -326,6 +331,7 @@ service Crumb {
     rpc GetQueue (GetQueueRequest) returns (stream QueueItem);
 
     rpc AddToQueue (AddToQueueRequest) returns (stream QueueItem);
+    rpc ReplaceQueue (ReplaceQueueRequest) returns (stream QueueItem);
     rpc RemoveFromQueue (RemoveFromQueueRequest) returns (stream QueueItem);
 
     rpc MoveQueueForward (MoveQueueForwardRequest) returns (stream QueueItem);

@@ -1,8 +1,8 @@
 use crate::{
-    client::QueueItem, components::AlbumCover, css, models::Queue, storage, util::new_client,
-    QueueFetchResult, QueueRecvResult,
+    client::QueueItem, components::AlbumCover, css, models::Queue, prelude::*, storage,
+    util::new_client, QueueRecvResult, QueueUpdate,
 };
-use dioxus::{core::UiEvent, events::FormData, prelude::*};
+use dioxus::{core::UiEvent, events::FormData};
 use dioxus_heroicons::{solid::Shape, IconButton};
 use wasm_bindgen::JsCast;
 use web_sys::{window, HtmlAudioElement};
@@ -14,10 +14,12 @@ const DEFAULT_VOLUME: u32 = 500;
 pub(crate) fn NowPlaying<'a>(
     cx: Scope,
     queue: &'a Option<QueueRecvResult>,
-    queue_tx: async_channel::Sender<QueueFetchResult>,
+    queue_tx: async_channel::Sender<QueueUpdate>,
     is_playing: &'a bool,
     set_is_playing: &'a UseState<bool>,
 ) -> Element {
+    log::info!("NowPlaying");
+
     let (volume, set_volume) = use_state(&cx, || {
         let store = *cx
             .consume_context::<storage::Store>()
@@ -39,13 +41,13 @@ pub(crate) fn NowPlaying<'a>(
                 Ok(queue) => {
                     rsx! {
                         div {
-                            class: "col-span-3 text-left",
+                            class: DC![C.fg.col_span_3, C.typ.text_left],
                             CurrentTrack {
                                 queue: queue,
                             },
                         },
                         div {
-                            class: "text-center",
+                            class: DC![C.typ.text_center],
                             PrevPlayPauseNextButtons {
                                 queue: queue,
                                 queue_tx: queue_tx.clone(),
@@ -54,7 +56,7 @@ pub(crate) fn NowPlaying<'a>(
                             },
                         },
                         div {
-                            class: "col-span-3 text-right",
+                            class: DC![C.fg.col_span_3, C.typ.text_right],
                             AdditionalButtons {
                                 volume: volume,
                                 set_volume: set_volume,
@@ -66,7 +68,7 @@ pub(crate) fn NowPlaying<'a>(
                     log::error!("Error loading queue: {}", e);
                     rsx! {
                         div {
-                            class: "col-span-7",
+                            class: DC![C.fg.col_span_7],
                             "Error loading queue"
                         },
                     }
@@ -76,16 +78,17 @@ pub(crate) fn NowPlaying<'a>(
                 log::error!("Error getting message from channel: {}", e);
                 rsx! {
                     div {
-                        class: "col-span-7",
+                        class: DC![C.fg.col_span_7],
                         "Error getting message from channel"
                     },
                 }
             }
         },
         None => {
+            log::info!("queue is None");
             rsx! {
                 div {
-                    class: "col-span-7",
+                    class: DC![C.fg.col_span_7],
                     "Loading queue ..."
                 },
             }
@@ -108,7 +111,15 @@ pub(crate) fn NowPlaying<'a>(
         })
         .unwrap_or(String::new());
     let classes = css::Classes::builder()
-        .classes("fixed inset-x-0 bottom-0 h-24 w-screen bg-indigo-500 text-white")
+        .classes(C![
+            C.lay.fixed,
+            C.lay.inset_x_0,
+            C.lay.bottom_0,
+            C.siz.h_24,
+            C.siz.w_screen,
+            C.bg.bg_indigo_500,
+            C.typ.text_white,
+        ])
         .with_standard_padding(true)
         .build();
     cx.render(rsx! {
@@ -116,15 +127,15 @@ pub(crate) fn NowPlaying<'a>(
             class: "{classes}",
             audio {
                 id: "{AUDIO_PLAYER_ID}",
-                class: "bg-black h-1 w-full",
+                class: DC![C.bg.bg_black, C.siz.h_1, C.siz.w_full],
                 autoplay: format_args!("{}", if **is_playing { "true" } else { "false" }),
                 preload: format_args!("{}", if **is_playing { "auto" } else { "none" }),
                 src: "{audio_src}",
             },
             div {
-                class: "px-8 py-4",
+                class: DC![C.spc.px_8, C.spc.py_4],
                 div {
-                    class: "grid grid-cols-7 items-center text-white",
+                    class: DC![C.lay.grid, C.fg.grid_cols_7, C.fg.items_center, C.typ.text_white],
                     content,
                 },
             },
@@ -137,7 +148,7 @@ fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue) -> Element {
     let content = match queue.is_empty() {
         true => rsx! {
             div {
-                class: "col-span-6",
+                class: DC![C.fg.col_span_6],
                 "Queue is empty",
             },
         },
@@ -151,13 +162,13 @@ fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue) -> Element {
                     },
                 },
                 div {
-                    class: "col-span-2",
+                    class: DC![C.fg.col_span_2],
                     CurrentTrackItem {
                         item: item,
                     },
                 },
                 div {
-                    class: "col-span-3",
+                    class: DC![C.fg.col_span_3],
                     ThumbButtons {
                         queue: queue,
                     },
@@ -168,7 +179,7 @@ fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue) -> Element {
 
     cx.render(rsx! {
         div {
-            class: "grid grid-cols-6 items-center gap-6",
+            class: DC![C.lay.grid, C.fg.col_span_6, C.fg.items_center, C.fg.gap_6],
             content,
         }
     })
@@ -184,7 +195,7 @@ fn CurrentTrackItem<'a>(cx: Scope, item: &'a QueueItem) -> Element<'a> {
     let release_url = item.release_url();
     cx.render(rsx! {
         div {
-            class: "truncate",
+            class: DC![C.typ.truncate],
             "{track.display_title}",
             br{ },
             a {
@@ -246,10 +257,11 @@ fn ThumbButtons<'a>(cx: Scope, queue: &'a Queue) -> Element {
         });
     };
 
+    let class = C![C.spc.pr_4];
     cx.render(rsx! {
         IconButton {
             onclick: up_onclick,
-            class: "pr-4",
+            class: "{class}",
             title: "I like it",
             disabled: disabled,
             size: 30,
@@ -269,7 +281,7 @@ fn ThumbButtons<'a>(cx: Scope, queue: &'a Queue) -> Element {
 fn PrevPlayPauseNextButtons<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
-    queue_tx: async_channel::Sender<QueueFetchResult>,
+    queue_tx: async_channel::Sender<QueueUpdate>,
     is_playing: &'a bool,
     set_is_playing: &'a UseState<bool>,
 ) -> Element<'a> {
@@ -298,7 +310,7 @@ fn PrevPlayPauseNextButtons<'a>(
 fn PreviousButton<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
-    queue_tx: async_channel::Sender<QueueFetchResult>,
+    queue_tx: async_channel::Sender<QueueUpdate>,
     is_playing: &'a bool,
 ) -> Element<'a> {
     let disabled = !queue.can_move_to_previous();
@@ -310,7 +322,7 @@ fn PreviousButton<'a>(
             .expect("Could not get Store from context");
         cx.spawn(async move {
             let new_queue = new_client(*store).move_queue_backward().await;
-            if let Err(e) = queue_tx.send(new_queue).await {
+            if let Err(e) = queue_tx.send(QueueUpdate(new_queue, false)).await {
                 log::error!("Error sending move queue backward result to channel: {}", e);
             }
             play_or_pause_audio(should_play);
@@ -355,7 +367,7 @@ fn PlayPauseButton<'a>(
 fn NextButton<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
-    queue_tx: async_channel::Sender<QueueFetchResult>,
+    queue_tx: async_channel::Sender<QueueUpdate>,
     is_playing: &'a bool,
 ) -> Element<'a> {
     let disabled = !queue.can_move_to_next();
@@ -368,7 +380,7 @@ fn NextButton<'a>(
         );
         cx.spawn(async move {
             let new_queue = client.move_queue_forward().await;
-            if let Err(e) = queue_tx.send(new_queue).await {
+            if let Err(e) = queue_tx.send(QueueUpdate(new_queue, false)).await {
                 log::error!("Error sending move queue forward result to channel: {}", e);
             }
             play_or_pause_audio(should_play);
@@ -422,7 +434,7 @@ fn AdditionalButtons<'a>(cx: Scope, volume: &'a u32, set_volume: &'a UseState<u3
 
     cx.render(rsx! {
         div {
-            class: "grid grid-cols-4 items-center text-center",
+            class: DC![C.lay.grid, C.fg.grid_cols_4, C.fg.items_center, C.typ.text_center],
             div {
                 IconButton {
                     onclick: mute_onclick,

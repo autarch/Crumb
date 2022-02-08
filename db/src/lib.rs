@@ -1061,11 +1061,11 @@ impl DB {
         }
 
         let mut tx = self.pool.begin().await?;
-        let queue = self
-            .add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
+        self.add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
             .await?;
         tx.commit().await?;
-        Ok(queue)
+
+        Ok(self.queue_for_user(user, client_id).await?)
     }
 
     #[tracing::instrument(skip(self))]
@@ -1093,13 +1093,12 @@ impl DB {
             .execute(&mut tx)
             .await?;
 
-        let queue = self
-            .add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
+        self.add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
             .await?;
 
         tx.commit().await?;
 
-        Ok(queue)
+        Ok(self.queue_for_user(user, client_id).await?)
     }
 
     #[tracing::instrument(skip(self))]
@@ -1109,7 +1108,7 @@ impl DB {
         user: &User,
         client_id: &Uuid,
         track_ids: &[Uuid],
-    ) -> DBResult<Vec<QueueItem>> {
+    ) -> DBResult<()> {
         let create = r#"
             CREATE TEMPORARY TABLE tracks_to_queue (
                 track_id  UUID  NOT NULL,
@@ -1191,7 +1190,7 @@ impl DB {
             .execute(&mut *tx)
             .await?;
 
-        Ok(self.queue_for_user(user, client_id).await?)
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]

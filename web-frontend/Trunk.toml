@@ -3,13 +3,5 @@ target = "index.html"
 dist = "dist"
 
 [[hooks]]
-stage = "build"
-command = "rm"
-command_arguments = ["-f", "css/tailwind_compiled.css"]
-
-[[hooks]]
-stage = "build"
-# I'm not sure why we can't just invoke tailwindcss directly, but that doesn't
-# seem to work for some reason.
-command = "sh"
-command_arguments = ["-c", "tailwindcss -i css/tailwind.css -o css/tailwind_compiled.css"]
+stage = "pre_build"
+command = "qreset"

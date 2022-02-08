@@ -606,8 +606,9 @@ dependencies = [
 
 [[package]]
 name = "dioxus-heroicons"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "bumpalo",
  "dioxus",
 ]
 
@@ -624,10 +625,6 @@ version = "0.1.6"
 dependencies = [
  "dioxus-core",
 ]
-
-[[package]]
-name = "dioxus-interpreter-js"
-version = "0.0.0"
 
 [[package]]
 name = "dioxus-router"
@@ -655,7 +652,6 @@ dependencies = [
  "console_error_panic_hook",
  "dioxus-core",
  "dioxus-html",
- "dioxus-interpreter-js",
  "futures-util",
  "fxhash",
  "gloo-timers",
@@ -2662,6 +2658,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tailwindcss-to-rust-macros"
+version = "0.1.0"
+
+[[package]]
 name = "tempfile"
 version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3292,6 +3292,7 @@ dependencies = [
  "prost-types",
  "serde",
  "serde_json",
+ "tailwindcss-to-rust-macros",
  "thiserror",
  "tonic",
  "tonic-build",

@@ -6,7 +6,7 @@ pub use tonic::codec::Streaming;
 tonic::include_proto!("crumb.v1");
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub(crate) enum Error {
     #[error("could not load data from remote host: {source:}")]
     DataLoadError {
         #[from]
@@ -26,13 +26,13 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone)]
-pub struct Client<T> {
+pub(crate) struct Client<T> {
     grpc_client: CrumbClient<T>,
     client_id: String,
 }
 
 impl Client<grpc_web_client::Client> {
-    pub fn new(client_id: String) -> Self {
+    pub(crate) fn new(client_id: String) -> Self {
         Self {
             grpc_client: CrumbClient::new(grpc_web_client::Client::new(
                 "http://localhost:13713".to_string(),
@@ -41,7 +41,7 @@ impl Client<grpc_web_client::Client> {
         }
     }
 
-    pub async fn get_artists(&mut self) -> Result<Vec<ArtistListItem>, Error> {
+    pub(crate) async fn get_artists(&mut self) -> Result<Vec<ArtistListItem>, Error> {
         let mut stream = self
             .grpc_client
             .get_artists(tonic::Request::new(GetArtistsRequest {}))
@@ -55,7 +55,7 @@ impl Client<grpc_web_client::Client> {
         Ok(artists)
     }
 
-    pub async fn get_artist(&mut self, artist_id: &str) -> Result<GetArtistResponse, Error> {
+    pub(crate) async fn get_artist(&mut self, artist_id: &str) -> Result<GetArtistResponse, Error> {
         Ok(self
             .grpc_client
             .get_artist(tonic::Request::new(GetArtistRequest {
@@ -66,7 +66,7 @@ impl Client<grpc_web_client::Client> {
             .into_inner())
     }
 
-    pub async fn get_release(&mut self, release_id: &str) -> Result<GetReleaseResponse, Error> {
+    pub(crate) async fn get_release(&mut self, release_id: &str) -> Result<GetReleaseResponse, Error> {
         Ok(self
             .grpc_client
             .get_release(tonic::Request::new(GetReleaseRequest {
@@ -77,7 +77,7 @@ impl Client<grpc_web_client::Client> {
             .into_inner())
     }
 
-    pub async fn get_queue(&mut self) -> Result<Queue, Error> {
+    pub(crate) async fn get_queue(&mut self) -> Result<Queue, Error> {
         let res = self
             .grpc_client
             .get_queue(tonic::Request::new(GetQueueRequest {
@@ -87,7 +87,7 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
-    pub async fn add_to_queue(&mut self, track_ids: Vec<String>) -> Result<Queue, Error> {
+    pub(crate) async fn add_to_queue(&mut self, track_ids: Vec<String>) -> Result<Queue, Error> {
         let res = self
             .grpc_client
             .add_to_queue(tonic::Request::new(AddToQueueRequest {
@@ -98,7 +98,7 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
-    pub async fn replace_queue(&mut self, track_ids: Vec<String>) -> Result<Queue, Error> {
+    pub(crate) async fn replace_queue(&mut self, track_ids: Vec<String>) -> Result<Queue, Error> {
         let res = self
             .grpc_client
             .replace_queue(tonic::Request::new(ReplaceQueueRequest {
@@ -109,7 +109,7 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
-    pub async fn remove_from_queue(&mut self, positions: Vec<String>) -> Result<Queue, Error> {
+    pub(crate) async fn remove_from_queue(&mut self, positions: Vec<String>) -> Result<Queue, Error> {
         let res = self
             .grpc_client
             .remove_from_queue(tonic::Request::new(RemoveFromQueueRequest {
@@ -120,7 +120,7 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
-    pub async fn move_queue_forward(&mut self) -> Result<Queue, Error> {
+    pub(crate) async fn move_queue_forward(&mut self) -> Result<Queue, Error> {
         let res = self
             .grpc_client
             .move_queue_forward(tonic::Request::new(MoveQueueForwardRequest {
@@ -130,7 +130,7 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
-    pub async fn move_queue_backward(&mut self) -> Result<Queue, Error> {
+    pub(crate) async fn move_queue_backward(&mut self) -> Result<Queue, Error> {
         let res = self
             .grpc_client
             .move_queue_backward(tonic::Request::new(MoveQueueBackwardRequest {
@@ -140,14 +140,14 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
-    pub async fn like_track(&mut self, track_id: String) -> Result<(), Error> {
+    pub(crate) async fn like_track(&mut self, track_id: String) -> Result<(), Error> {
         self.grpc_client
             .like_track(tonic::Request::new(LikeTrackRequest { track_id }))
             .await?;
         Ok(())
     }
 
-    pub async fn dislike_track(&mut self, track_id: String) -> Result<(), Error> {
+    pub(crate) async fn dislike_track(&mut self, track_id: String) -> Result<(), Error> {
         self.grpc_client
             .dislike_track(tonic::Request::new(DislikeTrackRequest { track_id }))
             .await?;
@@ -168,22 +168,29 @@ impl Client<grpc_web_client::Client> {
                 .iter()
                 .enumerate()
                 .find_map(|(i, item)| if item.is_current { Some(i) } else { None });
+        log::info!(
+            "queue_items_from_stream - current queue item = {}",
+            items
+                .get(current.unwrap_or(0))
+                .and_then(|i| Some(i.release_track.as_ref().unwrap().display_title.as_ref()))
+                .unwrap_or("<empty>")
+        );
         Ok(Queue::new(items, current))
     }
 }
 
 impl ArtistListItem {
-    pub fn url(&self) -> String {
+    pub(crate) fn url(&self) -> String {
         artist_url(&self.artist_id)
     }
 }
 
 impl ReleaseListItem {
-    pub fn url(&self) -> String {
+    pub(crate) fn url(&self) -> String {
         release_url(&self.release_id)
     }
 
-    pub fn best_release_year(&self, default: &'static str) -> String {
+    pub(crate) fn best_release_year(&self, default: &'static str) -> String {
         match self.original_year {
             Some(y) => format!("{}", y),
             None => match self.release_year {
@@ -195,11 +202,11 @@ impl ReleaseListItem {
 }
 
 impl QueueItem {
-    pub fn artist_url(&self) -> String {
+    pub(crate) fn artist_url(&self) -> String {
         artist_url(&self.artist_id)
     }
 
-    pub fn release_url(&self) -> String {
+    pub(crate) fn release_url(&self) -> String {
         release_url(&self.release_id)
     }
 }

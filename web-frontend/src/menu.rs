@@ -1,30 +1,28 @@
-use crate::css;
-use dioxus::{prelude::*, router::*};
+use crate::{css::Classes, prelude::*};
+use dioxus::router::*;
 use dioxus_heroicons::{solid::Shape, IconButton};
 
 pub(crate) fn Menu(cx: Scope) -> Element {
-    let classes = &[
-        "fixed",
-        "top-0",
-        "flex",
-        "flex-wrap",
-        "place-items-center",
-        "w-screen",
-        "h-14",
-        "border-b-2",
-        "border-gray-500",
-        "bg-indigo-600",
-        "text-white",
-    ]
-    .join(" ");
-    let classes = css::Classes::builder()
+    let classes = C![
+        C.lay.fixed,
+        C.lay.top_0,
+        C.lay.flex,
+        C.fg.flex_wrap,
+        C.fg.place_items_center,
+        C.siz.w_screen,
+        C.siz.h_14,
+        C.bor.border_b_2,
+        C.bg.bg_indigo_600,
+        C.typ.text_white,
+    ];
+    let class = Classes::builder()
         .classes(classes)
         .with_standard_padding(true)
         .build();
 
     cx.render(rsx! {
         section {
-            class: format_args!("{}", classes),
+            class: "{class}",
             HomeLink {},
             HamburgerButton {},
             MenuItems {},
@@ -49,11 +47,12 @@ pub(crate) fn HomeLink(cx: Scope) -> Element {
 }
 
 pub(crate) fn HamburgerButton(cx: Scope) -> Element {
+    let class = C![C.lay.flex, C.fg.items_center, C.spc.py_2, C.spc.mr_8];
     cx.render(rsx! {
         div {
             class: "block lg:hidden",
             IconButton {
-                class: "flex items-center py-2 mr-8",
+                class: "{class}",
                 title: "Navigation",
                 icon: Shape::Menu
             },

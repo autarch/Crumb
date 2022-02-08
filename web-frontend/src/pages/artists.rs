@@ -1,10 +1,12 @@
 use crate::{
-    client::{self, ArtistListItem},
+    client::ArtistListItem,
     components::AlbumCover,
-    storage,
+    page_div_classes,
+    prelude::*,
+    ring_flex_item_classes, storage,
     util::{maybe_plural, new_client},
 };
-use dioxus::{prelude::*, router::Link};
+use dioxus::router::Link;
 
 pub(crate) fn Artists<'a>(cx: Scope) -> Element {
     let artists = use_future(&cx, || {
@@ -18,7 +20,7 @@ pub(crate) fn Artists<'a>(cx: Scope) -> Element {
         match artists.value() {
             Some(Ok(artists)) => rsx! {
                 div {
-                    class: "flex flex-row flex-wrap place-content-center",
+                    class: format_args!("{}", page_div_classes()),
                     artists.iter().map(|a| rsx!{
                         OneArtist {
                             key: "{a.artist_id}",
@@ -47,11 +49,12 @@ fn OneArtist<'a>(cx: Scope, artist: &'a ArtistListItem) -> Element {
     let release_count = maybe_plural(artist.release_count, "release");
     let track_count = maybe_plural(artist.track_count, "track");
     let artist_url = artist.url();
+    let link_class = C![C.typ.text_lg];
     cx.render(rsx! {
         div {
-            class: "h-auto w-32 md:w-40 lg:w-48 m-6 md:m-8 lg:m-10",
+            class: format_args!("{}", ring_flex_item_classes()),
             div {
-                class: "object-contain mb-4",
+                class: DC![C.lay.object_contain, C.spc.mb_4],
                 Link {
                     to: "{artist_url}",
                     AlbumCover {
@@ -62,7 +65,7 @@ fn OneArtist<'a>(cx: Scope, artist: &'a ArtistListItem) -> Element {
             div {
                 class: "text-center",
                 Link {
-                    class: "text-lg",
+                    class: "{link_class}",
                     to: "{artist_url}",
                     "{artist.display_name}",
                 },

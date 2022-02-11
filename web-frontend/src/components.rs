@@ -50,9 +50,10 @@ pub(crate) fn AlbumCover<'a>(cx: Scope<'a, AlbumCoverProps<'a>>) -> Element<'a> 
         None => "https://dummyimage.com/200x200/fff/aaa".to_string(),
     };
     let mut class = cx.props.class.as_deref().unwrap_or("").to_string();
-    class.push_str(" rounded-full");
+    class.push_str(&C![C.bor.rounded_full]);
     if cx.props.ring {
-        class.push_str(" ring-4 ring-indigo-500 ring-opacity-50");
+        class.push(' ');
+        class.push_str(&C![C.bor.ring_4, C.bor.ring_indigo_500, C.bor.ring_opacity_50]);
     }
     cx.render(rsx! {
         img {

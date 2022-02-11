@@ -33,9 +33,9 @@ pub(crate) fn Menu(cx: Scope) -> Element {
 pub(crate) fn HomeLink(cx: Scope) -> Element {
     cx.render(rsx! {
         div {
-            class: "flex items-center flex-shrink-0 mr-8",
+            class: DC![C.lay.flex, C.fg.items_center, C.fg.flex_shrink_0, C.spc.mr_8],
             span {
-                class: "font-bold text-xl tracking-tight",
+                class: DC![C.typ.font_bold, C.typ.text_xl, C.typ.tracking_tight],
                 Link {
                     to: "/"
                     title: "Home",
@@ -50,7 +50,7 @@ pub(crate) fn HamburgerButton(cx: Scope) -> Element {
     let class = C![C.lay.flex, C.fg.items_center, C.spc.py_2, C.spc.mr_8];
     cx.render(rsx! {
         div {
-            class: "block lg:hidden",
+            class: DC![C.lay.block, M![M.lg, C.lay.hidden]],
             IconButton {
                 class: "{class}",
                 title: "Navigation",
@@ -61,11 +61,19 @@ pub(crate) fn HamburgerButton(cx: Scope) -> Element {
 }
 
 pub(crate) fn MenuItems(cx: Scope) -> Element {
+    let cog_class = C![C.lay.inline_block, C.typ.leading_none];
     cx.render(rsx! {
         div {
-            class: "w-full lg:w-auto block lg:flex lg:flex-grow lg:items-center",
+            class: DC![
+                C.siz.w_full,
+                M![M.lg, C.siz.w_auto],
+                C.lay.block,
+                M![M.lg, C.lay.flex],
+                M![M.lg, C.fg.flex_grow],
+                M![M.lg, C.fg.items_center],
+            ],
             div {
-                class: "lg:flex-grow",
+                class: DC![M![M.lg, C.fg.flex_grow]],
                 MenuItem {
                     text: "Artists",
                     href: "/artists",
@@ -88,9 +96,9 @@ pub(crate) fn MenuItems(cx: Scope) -> Element {
                 },
             },
             div {
-                class: "mr-0 lg:mr-8",
+                class: DC![C.spc.mr_8, M![M.lg, C.spc.mr_8]],
                 IconButton {
-                    class: "inline-block leading-none",
+                    class: "{cog_class}",
                     title: "Your settings",
                     size: 30,
                     icon: Shape::Cog,
@@ -109,24 +117,21 @@ pub(crate) fn MenuItem(
 ) -> Element {
     let location = use_route(&cx).current_location();
     let is_active = location.path() == *href;
-    let mut classes: Vec<_> = vec![
-        // These first two styles are for the hamburger view, where the items
-        // are stacked vertically. Then we override for a large screen to get
-        // a side-by-side layout.
-        "block",
-        "mt-4",
-        "lg:inline-block",
-        "lg:mt-0",
-        "mr-8",
-        "p-2",
-        "rounded",
+    let mut class = C![
+        C.lay.block,
+        C.spc.mt_4,
+        M![M.lg, C.lay.inline_block],
+        M![M.lg, C.spc.mt_0],
+        M![M.lg, C.spc.mr_8,]
+        C.spc.p_2,
+        C.bor.rounded,
     ];
+    class.push(' ');
     if is_active {
-        classes.push("text-slate-50 bg-blue-500");
+        class.push_str(&C![C.typ.text_slate_50, C.bg.bg_blue_500]);
     } else {
-        classes.push("text-slate-100");
+        class.push_str(&C![C.typ.text_slate_100]);
     }
-    let class = classes.join(" ");
     cx.render(rsx! {
         Link {
             class: "{class}",

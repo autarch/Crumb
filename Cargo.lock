@@ -627,6 +627,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dioxus-interpreter-js"
+version = "0.0.0"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "dioxus-router"
 version = "0.1.1"
 dependencies = [
@@ -652,6 +661,7 @@ dependencies = [
  "console_error_panic_hook",
  "dioxus-core",
  "dioxus-html",
+ "dioxus-interpreter-js",
  "futures-util",
  "fxhash",
  "gloo-timers",
@@ -659,6 +669,7 @@ dependencies = [
  "lazy_static",
  "log",
  "once_cell",
+ "serde-wasm-bindgen 0.4.2",
  "smallstr",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -1069,7 +1080,7 @@ dependencies = [
  "gloo-events",
  "gloo-utils",
  "serde",
- "serde-wasm-bindgen",
+ "serde-wasm-bindgen 0.3.1",
  "serde_urlencoded",
  "thiserror",
  "wasm-bindgen",
@@ -2322,6 +2333,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5d0927d4115e78b52dfd4cabcb3cc79bd56b94a53cf27c074bf8b83af1765d1"
+dependencies = [
+ "fnv",
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.136"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2659,7 +2682,7 @@ dependencies = [
 
 [[package]]
 name = "tailwindcss-to-rust-macros"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "tempfile"

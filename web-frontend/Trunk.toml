@@ -5,3 +5,10 @@ dist = "dist"
 [[hooks]]
 stage = "pre_build"
 command = "qreset"
+
+[[hooks]]
+stage = "build"
+# I'm not sure why we can't just invoke tailwindcss directly, but that doesn't
+# seem to work for some reason.
+command = "sh"
+command_arguments = ["-c", "tailwindcss -i css/tailwind.css -o css/tailwind_compiled.css"]

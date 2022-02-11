@@ -1,13 +1,15 @@
 #!/bin/sh
 
 cd web-frontend
-trunk -v serve \
+trunk -v serve --release \
     --watch .. \
     --watch ../../dioxus/ \
     --watch ../../grpc-web-client/ \
     --watch ../../dioxus-heroicons/ \
+    --watch ../../tailwindcss-to-rust/ \
     --ignore ../target/ \
     --ignore ../../dioxus/target \
     --ignore ../../dioxus-heroicons/target/ \
+    --ignore ../../tailwindcss-to-rust/target/ \
     --ignore ./css/tailwind_compiled.css \
     --ignore ../.log

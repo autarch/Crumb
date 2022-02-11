@@ -143,7 +143,8 @@ fn LoadedRelease<'a>(
         C.spc.pt_1,
         C.spc.pb_2,
         C.spc.pl_1,
-        C.spc.pr_5,
+        C.spc.pr_3,
+        C.spc.mr_2,
         C.bg.bg_indigo_400,
         C.typ.font_bold,
         C.typ.text_white,
@@ -151,13 +152,13 @@ fn LoadedRelease<'a>(
     ];
     let icon_class = C![C.lay.inline_block, C.typ.align_middle];
     let play_span_class = C![C.spc.px_1, C.spc.mr_1];
-    let enqueue_class = C![C.bg.bg_indigo_400,];
+    let enqueue_class = C![C.spc.pt_1, C.spc.pb_2, C.spc.px_1, C.bg.bg_indigo_400];
 
     cx.render(rsx! {
         div {
             class: DC![C.lay.flex, C.fg.flex_col, C.spc.pl_8],
             div {
-                class: DC![C.lay.flex, C.fg.flex_col],
+                class: DC![C.lay.flex, C.fg.flex_row],
                 div {
                     AlbumCover {
                         uri: core.release_cover_uri.as_deref(),

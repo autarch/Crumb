@@ -26,6 +26,7 @@ type QueueRecvResult = Result<QueueFetchResult, async_channel::RecvError>;
 struct QueueUpdate(QueueFetchResult, bool);
 
 fn main() {
+    log::info!("{}", [C.lay.flex, C.fg.flex_col].join(" "));
     wasm_logger::init(wasm_logger::Config::new(log::Level::Info));
     dioxus::web::launch(App)
 }
@@ -75,6 +76,7 @@ fn App(cx: Scope) -> Element {
         .classes(C![C.spc.pt_20, C.spc.pb_16, C.siz.h_full])
         .with_standard_padding(true)
         .build();
+
     cx.render(rsx! {
         Router {
             div {

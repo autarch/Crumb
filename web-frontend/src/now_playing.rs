@@ -18,8 +18,6 @@ pub(crate) fn NowPlaying<'a>(
     is_playing: &'a bool,
     set_is_playing: &'a UseState<bool>,
 ) -> Element {
-    log::info!("NowPlaying");
-
     let (volume, set_volume) = use_state(&cx, || {
         let store = *cx
             .consume_context::<storage::Store>()
@@ -85,7 +83,6 @@ pub(crate) fn NowPlaying<'a>(
             }
         },
         None => {
-            log::info!("queue is None");
             rsx! {
                 div {
                     class: DC![C.fg.col_span_7],
@@ -179,7 +176,7 @@ fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue) -> Element {
 
     cx.render(rsx! {
         div {
-            class: DC![C.lay.grid, C.fg.col_span_6, C.fg.items_center, C.fg.gap_6],
+            class: DC![C.lay.grid, C.fg.grid_cols_6, C.fg.items_center],
             content,
         }
     })

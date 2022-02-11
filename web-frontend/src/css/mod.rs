@@ -17,13 +17,14 @@ pub(crate) struct Classes {
 
 impl fmt::Display for Classes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // write!(f, "{}", "foo");
+        // return Ok(());
         if self.with_standard_padding {
             write!(
                 f,
                 "{} {}",
                 self.classes,
-                "foo",
-//                C![C.spc.px_2, C.spc.py_2, M![M.lg, C.spc.px_4]],
+                C![C.spc.px_2, C.spc.py_2, M![M.lg, C.spc.px_4]],
             )
         } else {
             write!(f, "{}", self.classes)

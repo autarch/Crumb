@@ -5,6 +5,7 @@ pub use crate::dbtypes::*;
 use crate::names::*;
 use itertools::Itertools;
 use log::debug;
+use rust_decimal::Decimal;
 pub use sqlx::Error as SQLXError;
 use sqlx::{
     postgres::{PgPool, PgPoolOptions, PgRow},
@@ -1198,7 +1199,7 @@ impl DB {
         &self,
         user: &User,
         client_id: &Uuid,
-        positions: &[String],
+        positions: &[Decimal],
     ) -> DBResult<Vec<QueueItem>> {
         if positions.is_empty() {
             return Ok(vec![]);

@@ -7,9 +7,11 @@ trunk -v serve --release \
     --watch ../../grpc-web-client/ \
     --watch ../../dioxus-heroicons/ \
     --watch ../../tailwindcss-to-rust/ \
+    --watch ../../wasm-logger/ \
     --ignore ../target/ \
     --ignore ../../dioxus/target \
     --ignore ../../dioxus-heroicons/target/ \
     --ignore ../../tailwindcss-to-rust/target/ \
+    --ignore ../../wasm-logger/target/ \
     --ignore ./css/tailwind_compiled.css \
     --ignore ../.log

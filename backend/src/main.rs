@@ -2,7 +2,8 @@ use crate::crumb_server::{Crumb, CrumbServer};
 use anyhow::Result;
 use crumb_db::{DBError, SQLXError, User, DB};
 use futures::{stream, Stream};
-use std::{env, pin::Pin};
+use rust_decimal::Decimal;
+use std::{env, pin::Pin, str::FromStr};
 use tonic::{transport::Server, Request, Response, Status as TonicStatus};
 use tracing::{event, Level};
 use tracing_subscriber;
@@ -271,16 +272,7 @@ impl Crumb for MyCrumb {
     ) -> GetQueueResult<Self::GetQueueStream> {
         let user = self.get_user().await?;
         let inner = req.into_inner();
-        let req_client_id = inner.client_id;
-        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
-            event!(
-                Level::ERROR,
-                client_id = %req_client_id,
-                error = %e,
-                "error parsing client_id as UUID",
-            );
-            TonicStatus::internal("Server error")
-        })?;
+        let client_id = parse_client_id(&inner.client_id)?;
         let queue_items = self
             .db
             .queue_for_user(&user, &client_id)
@@ -307,16 +299,7 @@ impl Crumb for MyCrumb {
     ) -> AddToQueueResult<Self::AddToQueueStream> {
         let user = self.get_user().await?;
         let inner = req.into_inner();
-        let req_client_id = inner.client_id;
-        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
-            event!(
-                Level::ERROR,
-                client_id = %req_client_id,
-                error = %e,
-                "error parsing client_id as UUID",
-            );
-            TonicStatus::internal("Server error")
-        })?;
+        let client_id = parse_client_id(&inner.client_id)?;
         let track_ids = inner
             .track_ids
             .iter()
@@ -356,26 +339,17 @@ impl Crumb for MyCrumb {
     ) -> ReplaceQueueResult<Self::ReplaceQueueStream> {
         let user = self.get_user().await?;
         let inner = req.into_inner();
-        let req_client_id = inner.client_id;
-        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
-            event!(
-                Level::ERROR,
-                client_id = %req_client_id,
-                error = %e,
-                "error parsing client_id as UUID",
-            );
-            TonicStatus::internal("Server error")
-        })?;
+        let client_id = parse_client_id(&inner.client_id)?;
         let track_ids = inner
             .track_ids
             .iter()
-            .map(|id| Uuid::parse_str(id))
-            .collect::<Result<Vec<Uuid>, uuid::Error>>()
+            .map(|i| Uuid::parse_str(i))
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
                 event!(
                     Level::ERROR,
                     error = %e,
-                    "error parsing a track_id as UUID",
+                    "error parsing a track_id as a UUID",
                 );
                 TonicStatus::internal("Server error")
             })?;
@@ -405,17 +379,20 @@ impl Crumb for MyCrumb {
     ) -> RemoveFromQueueResult<Self::RemoveFromQueueStream> {
         let user = self.get_user().await?;
         let inner = req.into_inner();
-        let req_client_id = inner.client_id;
-        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
-            event!(
-                Level::ERROR,
-                client_id = %req_client_id,
-                error = %e,
-                "error parsing client_id as UUID",
-            );
-            TonicStatus::internal("Server error")
-        })?;
-        let positions = inner.positions;
+        let client_id = parse_client_id(&inner.client_id)?;
+        let positions = inner
+            .positions
+            .iter()
+            .map(|p| Decimal::from_str(p))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                event!(
+                    Level::ERROR,
+                    error = %e,
+                    "error parsing a queue position as decimal",
+                );
+                TonicStatus::internal("Server error")
+            })?;
         let queue_items = self
             .db
             .remove_from_queue_for_user(&user, &client_id, &positions)
@@ -442,16 +419,7 @@ impl Crumb for MyCrumb {
     ) -> MoveQueueForwardResult<Self::MoveQueueForwardStream> {
         let user = self.get_user().await?;
         let inner = req.into_inner();
-        let req_client_id = inner.client_id;
-        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
-            event!(
-                Level::ERROR,
-                client_id = %req_client_id,
-                error = %e,
-                "error parsing client_id as UUID",
-            );
-            TonicStatus::internal("Server error")
-        })?;
+        let client_id = parse_client_id(&inner.client_id)?;
         let queue_items = self
             .db
             .move_queue_forward_for_user(&user, &client_id)
@@ -478,16 +446,7 @@ impl Crumb for MyCrumb {
     ) -> MoveQueueBackwardResult<Self::MoveQueueBackwardStream> {
         let user = self.get_user().await?;
         let inner = req.into_inner();
-        let req_client_id = inner.client_id;
-        let client_id = Uuid::parse_str(&req_client_id).map_err(|e| {
-            event!(
-                Level::ERROR,
-                client_id = %req_client_id,
-                error = %e,
-                "error parsing client_id as UUID",
-            );
-            TonicStatus::internal("Server error")
-        })?;
+        let client_id = parse_client_id(&inner.client_id)?;
         let queue_items = self
             .db
             .move_queue_backward_for_user(&user, &client_id)
@@ -711,4 +670,16 @@ async fn main() -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+fn parse_client_id(id: &str) -> Result<Uuid, TonicStatus> {
+    Uuid::parse_str(id).map_err(|e| {
+        event!(
+            Level::ERROR,
+            client_id = %id,
+            error = %e,
+            "error parsing client_id as UUID",
+        );
+        TonicStatus::internal("Server error")
+    })
 }

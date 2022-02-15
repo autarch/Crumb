@@ -8,8 +8,8 @@ module.exports = {
             rs = rs.replace("two_", "2");
           }
           return rs
-            .replaceAll("_of_", "\\/")
-            .replaceAll("_p_", "\\.")
+            .replaceAll("_of_", "/")
+            .replaceAll("_p_", ".")
             .replaceAll("_", "-");
         };
 

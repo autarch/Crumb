@@ -18,15 +18,15 @@ mod prelude {
 use crate::prelude::*;
 use crate::{pages::*, util::new_client};
 use dioxus::router::*;
+use futures_util::StreamExt;
 use models::Queue;
 
 type QueueFetchResult = Result<Queue, client::Error>;
-type QueueRecvResult = Result<QueueFetchResult, async_channel::RecvError>;
+type QueueRecvResult = Result<QueueFetchResult, futures_channel::mpsc::TryRecvError>;
 
 struct QueueUpdate(QueueFetchResult, bool);
 
 fn main() {
-    log::info!("{}", [C.lay.flex, C.fg.flex_col].join(" "));
     wasm_logger::init(wasm_logger::Config::new(log::Level::Info));
     dioxus::web::launch(App)
 }
@@ -37,7 +37,7 @@ fn App(cx: Scope) -> Element {
     let (is_playing, set_is_playing) = use_state(&cx, || false);
     let (queue, set_queue) = use_state(&cx, || None);
     let queue_tx = cx.use_hook(|_| {
-        let (tx, rx) = async_channel::bounded::<QueueUpdate>(3);
+        let (tx, mut rx) = futures_channel::mpsc::channel::<QueueUpdate>(3);
         let mut client = new_client(
             *cx.consume_context::<storage::Store>()
                 .expect("Could not get Store from context"),
@@ -47,21 +47,21 @@ fn App(cx: Scope) -> Element {
             to_owned![set_is_playing, set_queue, tx];
             async move {
                 let queue = client.get_queue().await;
-                if let Err(e) = tx.send(QueueUpdate(queue, false)).await {
+                if let Err(e) = tx.try_send(QueueUpdate(queue, false)) {
                     log::error!("Error sending initial load of queue to channel: {}", e);
                     return;
                 }
 
                 loop {
-                    match rx.recv().await {
-                        Ok(QueueUpdate(queue, start_playing)) => {
+                    match rx.next().await {
+                        Some(QueueUpdate(queue, start_playing)) => {
                             set_queue(Some(Ok(queue)));
                             if start_playing {
                                 set_is_playing(true);
                             }
                         }
-                        Err(e) => {
-                            log::error!("Channel was closed: {}", e);
+                        None => {
+                            log::error!("Queue update channel was closed");
                             break;
                         }
                     }
@@ -111,7 +111,7 @@ fn App(cx: Scope) -> Element {
 fn CrumbRoutes<'a>(
     cx: Scope,
     queue: &'a Option<QueueRecvResult>,
-    queue_tx: async_channel::Sender<QueueUpdate>,
+    queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
     is_playing: &'a bool,
     set_is_playing: &'a UseState<bool>,
 ) -> Element {

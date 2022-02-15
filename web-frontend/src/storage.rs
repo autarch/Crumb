@@ -21,7 +21,7 @@ impl Store {
     {
         match LocalStorage::get(key) {
             Ok(v) => Ok(Some(v)),
-            Err(e) => Ok(None),
+            Err(_) => Ok(None),
         }
     }
 

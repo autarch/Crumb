@@ -168,13 +168,6 @@ impl Client<grpc_web_client::Client> {
                 .iter()
                 .enumerate()
                 .find_map(|(i, item)| if item.is_current { Some(i) } else { None });
-        log::info!(
-            "queue_items_from_stream - current queue item = {}",
-            items
-                .get(current.unwrap_or(0))
-                .and_then(|i| Some(i.release_track.as_ref().unwrap().display_title.as_ref()))
-                .unwrap_or("<empty>")
-        );
         Ok(Queue::new(items, current))
     }
 }

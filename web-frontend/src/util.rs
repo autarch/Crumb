@@ -29,7 +29,7 @@ pub(crate) fn new_client(s: storage::Store) -> Client<grpc_web_client::Client> {
                 .expect("Could not set client-id key in local storage");
             id
         }
-        Err(e) => {
+        Err(_) => {
             panic!("unreachable")
         }
     };

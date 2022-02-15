@@ -1,6 +1,12 @@
 use crate::{
-    client::QueueItem, components::AlbumCover, css, models::Queue, prelude::*, storage,
-    util::new_client, QueueRecvResult, QueueUpdate,
+    client::QueueItem,
+    components::{AlbumCover, Color, UnderlineLink},
+    css,
+    models::Queue,
+    prelude::*,
+    storage,
+    util::new_client,
+    QueueRecvResult, QueueUpdate,
 };
 use dioxus::{core::UiEvent, events::FormData};
 use dioxus_heroicons::{solid::Shape, IconButton};
@@ -14,7 +20,7 @@ const DEFAULT_VOLUME: u32 = 500;
 pub(crate) fn NowPlaying<'a>(
     cx: Scope,
     queue: &'a Option<QueueRecvResult>,
-    queue_tx: async_channel::Sender<QueueUpdate>,
+    queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
     is_playing: &'a bool,
     set_is_playing: &'a UseState<bool>,
 ) -> Element {
@@ -193,15 +199,17 @@ fn CurrentTrackItem<'a>(cx: Scope, item: &'a QueueItem) -> Element<'a> {
     cx.render(rsx! {
         div {
             class: DC![C.typ.truncate],
-            "{track.display_title}",
+            strong { "{track.display_title}" },
             br{ },
-            a {
-                href: "{artist_url}",
+            UnderlineLink {
+                color: Color::White,
+                to: "{artist_url}",
                 "{item.artist_display_name}",
             },
             " - ",
-            a {
-                href: "{release_url}",
+            UnderlineLink {
+                color: Color::White,
+                to: "{release_url}",
                 "{item.release_display_title}",
             },
         }
@@ -230,6 +238,10 @@ fn ThumbButtons<'a>(cx: Scope, queue: &'a Queue) -> Element {
             .expect("Could not get Store from context");
         cx.spawn(async move {
             let response = new_client(*store).like_track(current_track_id).await;
+            match response {
+                Ok(_) => (),
+                Err(e) => log::error!("Error from liking track: {e}"),
+            }
         });
     };
 
@@ -251,6 +263,10 @@ fn ThumbButtons<'a>(cx: Scope, queue: &'a Queue) -> Element {
             .expect("Could not get Store from context");
         cx.spawn(async move {
             let response = new_client(*store).dislike_track(current_track_id).await;
+            match response {
+                Ok(_) => (),
+                Err(e) => log::error!("Error from disliking track: {e}"),
+            }
         });
     };
 
@@ -278,7 +294,7 @@ fn ThumbButtons<'a>(cx: Scope, queue: &'a Queue) -> Element {
 fn PrevPlayPauseNextButtons<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
-    queue_tx: async_channel::Sender<QueueUpdate>,
+    queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
     is_playing: &'a bool,
     set_is_playing: &'a UseState<bool>,
 ) -> Element<'a> {
@@ -307,7 +323,7 @@ fn PrevPlayPauseNextButtons<'a>(
 fn PreviousButton<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
-    queue_tx: async_channel::Sender<QueueUpdate>,
+    queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
     is_playing: &'a bool,
 ) -> Element<'a> {
     let disabled = !queue.can_move_to_previous();
@@ -319,8 +335,8 @@ fn PreviousButton<'a>(
             .expect("Could not get Store from context");
         cx.spawn(async move {
             let new_queue = new_client(*store).move_queue_backward().await;
-            if let Err(e) = queue_tx.send(QueueUpdate(new_queue, false)).await {
-                log::error!("Error sending move queue backward result to channel: {}", e);
+            if let Err(e) = queue_tx.try_send(QueueUpdate(new_queue, false)) {
+                log::error!("Error sending move queue backward result to channel: {e}");
             }
             play_or_pause_audio(should_play);
         });
@@ -364,7 +380,7 @@ fn PlayPauseButton<'a>(
 fn NextButton<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
-    queue_tx: async_channel::Sender<QueueUpdate>,
+    queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
     is_playing: &'a bool,
 ) -> Element<'a> {
     let disabled = !queue.can_move_to_next();
@@ -377,8 +393,8 @@ fn NextButton<'a>(
         );
         cx.spawn(async move {
             let new_queue = client.move_queue_forward().await;
-            if let Err(e) = queue_tx.send(QueueUpdate(new_queue, false)).await {
-                log::error!("Error sending move queue forward result to channel: {}", e);
+            if let Err(e) = queue_tx.try_send(QueueUpdate(new_queue, false)) {
+                log::error!("Error sending move queue forward result to channel: {e}");
             }
             play_or_pause_audio(should_play);
         });
@@ -496,7 +512,7 @@ fn get_audio_element() -> Option<HtmlAudioElement> {
             Some(d) => match d.get_element_by_id(AUDIO_PLAYER_ID) {
                 Some(a) => match a.dyn_into::<HtmlAudioElement>() {
                     Ok(a) => return Some(a),
-                    Err(e) => {
+                    Err(_) => {
                         log::error!("Could not cast audio player element into an HtmlAudioElement");
                     }
                 },

@@ -213,7 +213,7 @@ fn LoadedRelease<'a>(
 }
 
 #[inline_props]
-fn Tracks<'a>(cx: Scope, tracks: &'a [ReleaseTrack]) -> Element {
+fn Tracks<'a>(cx: Scope<'a>, tracks: &'a [ReleaseTrack]) -> Element {
     let show_more_states: &UseRef<HashMap<String, bool>> = use_ref(&cx, || {
         let mut sms = HashMap::new();
         for t in tracks.iter() {
@@ -221,6 +221,7 @@ fn Tracks<'a>(cx: Scope, tracks: &'a [ReleaseTrack]) -> Element {
         }
         sms
     });
+
     let class = C![C.spc.mt_4, C.spc.ml_2];
     cx.render(rsx! {
         "tracks"
@@ -254,7 +255,13 @@ fn OneTrack<'a>(
         }
     };
 
-    let mut show_more_classes = vec![C.lay.fixed, C.spc.p_4, C.bg.bg_indigo_600, C.typ.text_white];
+    let mut show_more_classes = vec![
+        C.lay.fixed,
+        C.spc.py_1,
+        C.spc.px_3,
+        C.bg.bg_indigo_600,
+        C.typ.text_white,
+    ];
     if *(show_more_states
         .read()
         .get(&track.track_id)
@@ -279,7 +286,7 @@ fn OneTrack<'a>(
                 div {
                     class: DC![show_more_classes],
                     ul {
-                        li { "item 1" },
+                        li { "Delete track" },
                         li { "item 2" },
                     },
                 },

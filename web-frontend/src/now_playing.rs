@@ -5,6 +5,7 @@ use crate::{
     models::Queue,
     prelude::*,
     storage,
+    usehighlanders::UseHighlanders,
     util::new_client,
     QueueRecvResult, QueueUpdate,
 };
@@ -23,6 +24,7 @@ pub(crate) fn NowPlaying<'a>(
     queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
     is_playing: &'a bool,
     set_is_playing: &'a UseState<bool>,
+    context_menus: UseHighlanders,
 ) -> Element {
     let (volume, set_volume) = use_state(&cx, || {
         let store = *cx
@@ -64,6 +66,7 @@ pub(crate) fn NowPlaying<'a>(
                             AdditionalButtons {
                                 volume: volume,
                                 set_volume: set_volume,
+                                context_menus: context_menus,
                             },
                         },
                     }
@@ -410,16 +413,30 @@ fn NextButton<'a>(
     })
 }
 
-#[inline_props]
-fn AdditionalButtons<'a>(cx: Scope, volume: &'a u32, set_volume: &'a UseState<u32>) -> Element {
+#[derive(Debug, Props)]
+struct AdditionalButtonsProps<'a> {
+    volume: &'a u32,
+    set_volume: &'a UseState<u32>,
+    context_menus: &'a UseHighlanders,
+}
+
+//#[inline_props]
+fn AdditionalButtons<'a>(
+    cx: Scope<'a, AdditionalButtonsProps<'a>>,
+    //    volume: &'a u32,
+    //    set_volume: &'a UseState<u32>,
+    //    context_menus: &'a UseHighlanders,
+) -> Element {
+    let volume = cx.props.volume;
     let mute_onclick = move |_| {
-        to_owned![set_volume];
+        //to_owned![set_volume];
+        let set_volume = cx.props.set_volume.clone();
         let store = cx
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
-        if **volume > 0 {
+        if *volume > 0 {
             store
-                .set("volume", **volume)
+                .set("volume", *volume)
                 .expect("could not set volume in storage");
             update_volume(0, &set_volume);
         } else {
@@ -429,8 +446,10 @@ fn AdditionalButtons<'a>(cx: Scope, volume: &'a u32, set_volume: &'a UseState<u3
             update_volume(stored.unwrap_or(DEFAULT_VOLUME), &set_volume);
         }
     };
+
     let volume_onchange = move |e: UiEvent<FormData>| {
-        to_owned![set_volume];
+        //to_owned![set_volume];
+        let set_volume = cx.props.set_volume.clone();
         let store = cx
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
@@ -445,14 +464,38 @@ fn AdditionalButtons<'a>(cx: Scope, volume: &'a u32, set_volume: &'a UseState<u3
         update_volume(new_volume, &set_volume);
     };
 
+    let context_menus = cx.use_hook(|_| cx.props.context_menus.clone());
+    context_menus.register("NowPlaying");
+    let context_menu_is_enabled = context_menus.is_enabled("NowPlaying");
+    log::info!("render CM = {:?}", context_menus);
+
+    let dots_onclick = move |_| {
+        log::info!("Enabling NowPlaying");
+        context_menus.enable("NowPlaying");
+        log::info!("onclick CM = {:?}", context_menus);
+    };
+
+    let mut context_menu_classes = vec![
+        C.lay.fixed,
+        C.spc.py_1,
+        C.spc.px_3,
+        C.bg.bg_indigo_600,
+        C.typ.text_white,
+    ];
+    if context_menu_is_enabled {
+        context_menu_classes.push(C.lay.visible);
+    } else {
+        context_menu_classes.push(C.lay.hidden);
+    }
+    log::info!("render");
     cx.render(rsx! {
         div {
             class: DC![C.lay.grid, C.fg.grid_cols_4, C.fg.items_center, C.typ.text_center],
             div {
                 IconButton {
                     onclick: mute_onclick,
-                    title: if **volume > 0 { "Mute" } else { "Unmute" },
-                    icon: if **volume > 0 { Shape::VolumeUp } else { Shape::VolumeOff },
+                    title: if *volume > 0 { "Mute" } else { "Unmute" },
+                    icon: if *volume > 0 { Shape::VolumeUp } else { Shape::VolumeOff },
                     size: 30,
                 },
             },
@@ -469,7 +512,15 @@ fn AdditionalButtons<'a>(cx: Scope, volume: &'a u32, set_volume: &'a UseState<u3
                 },
             },
             div {
+                class: DC![context_menu_classes],
+                ul {
+                    li { "Delete track" },
+                    li { "item 2" },
+                },
+            },
+            div {
                 IconButton {
+                    onclick: dots_onclick,
                     title: "More actions",
                     icon: Shape::DotsVertical,
                     size: 30,

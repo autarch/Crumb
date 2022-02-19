@@ -8,6 +8,7 @@ mod models;
 mod now_playing;
 mod pages;
 mod storage;
+mod usehighlanders;
 mod util;
 
 mod prelude {
@@ -20,6 +21,7 @@ use crate::{pages::*, util::new_client};
 use dioxus::router::*;
 use futures_util::StreamExt;
 use models::Queue;
+use usehighlanders::use_highlanders;
 
 type QueueFetchResult = Result<Queue, client::Error>;
 type QueueRecvResult = Result<QueueFetchResult, futures_channel::mpsc::TryRecvError>;
@@ -27,7 +29,7 @@ type QueueRecvResult = Result<QueueFetchResult, futures_channel::mpsc::TryRecvEr
 struct QueueUpdate(QueueFetchResult, bool);
 
 fn main() {
-    wasm_logger::init(wasm_logger::Config::new(log::Level::Info));
+    wasm_logger::init(wasm_logger::Config::new(log::Level::Trace));
     dioxus::web::launch(App)
 }
 
@@ -72,6 +74,8 @@ fn App(cx: Scope) -> Element {
         tx
     });
 
+    let context_menus = use_highlanders(&cx);
+
     let page_classes = css::Classes::builder()
         .classes(C![C.spc.pt_20, C.spc.pb_16, C.siz.h_full])
         .with_standard_padding(true)
@@ -100,6 +104,7 @@ fn App(cx: Scope) -> Element {
                         queue_tx: queue_tx.clone(),
                         is_playing: is_playing,
                         set_is_playing: set_is_playing,
+                        context_menus: context_menus.clone(),
                     },
                 },
             },

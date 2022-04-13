@@ -1,6 +1,6 @@
 use crate::{
-    client::{get_artist_response, ReleaseListItem},
     components::{AlbumCover, PageTitle, UserFacingError},
+    grpc::crumb::{get_artist_response, ReleaseListItem},
     page_div_classes,
     prelude::*,
     ring_flex_item_classes, storage,

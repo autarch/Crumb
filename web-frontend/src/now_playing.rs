@@ -1,5 +1,5 @@
 use crate::{
-    client::QueueItem,
+    grpc::crumb::QueueItem,
     components::{AlbumCover, Color, ContextMenu, UnderlineLink},
     css,
     models::Queue,

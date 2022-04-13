@@ -9,7 +9,12 @@ use tracing::{event, Level};
 use tracing_subscriber;
 use uuid::Uuid;
 
-tonic::include_proto!("crumb.v1");
+mod grpc {
+    #[path = "crumb.v1.rs"]
+    pub(crate) mod crumb;
+}
+
+use grpc::crumb::*;
 
 type GetArtistsResult<T> = Result<Response<T>, TonicStatus>;
 type GetArtistsResponseStream =

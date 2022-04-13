@@ -1,4 +1,4 @@
-use crate::client::QueueItem;
+use crate::grpc::crumb::QueueItem;
 
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Queue {

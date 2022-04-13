@@ -1,9 +1,9 @@
-use crate::models::Queue;
-use crumb_client::CrumbClient;
+pub(crate) use crate::{
+    grpc::crumb::{crumb_client::CrumbClient, *},
+    models::Queue,
+};
 use thiserror::Error;
 pub use tonic::codec::Streaming;
-
-tonic::include_proto!("crumb.v1");
 
 #[derive(Debug, Error)]
 pub(crate) enum Error {

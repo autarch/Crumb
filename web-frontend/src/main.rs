@@ -13,8 +13,13 @@ mod util;
 
 mod prelude {
     pub(crate) use crate::css::*;
-    pub(crate) use dioxus::prelude::*;
     pub(crate) use dioxus::core::to_owned;
+    pub(crate) use dioxus::prelude::*;
+}
+
+mod grpc {
+    #[path = "crumb.v1.rs"]
+    pub(crate) mod crumb;
 }
 
 use crate::prelude::*;

@@ -1,5 +1,7 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Compiling grpc stuff for backend");
-    tonic_build::compile_protos("../rpc-proto/crumb.proto")?;
+    tonic_build::configure()
+        .build_client(false)
+        .out_dir("src/grpc")
+        .compile(&["../rpc-proto/crumb.proto"], &["../rpc-proto"])?;
     Ok(())
 }

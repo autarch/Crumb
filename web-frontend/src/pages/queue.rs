@@ -1,6 +1,6 @@
 use crate::{
-    client::QueueItem,
     components::{AlbumCover, Color, ContextMenu, Table, Td, Tr, UnderlineLink},
+    grpc::crumb::QueueItem,
     models::Queue,
     prelude::*,
     storage,

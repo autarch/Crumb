@@ -1,8 +1,8 @@
 use crate::{
-    client::{get_release_response, ReleaseItem, ReleaseTrack},
     components::{
         AlbumCover, ContextMenu, PageTitle, SubTitle, Table, Td, Tr, UnderlineLink, UserFacingError,
     },
+    grpc::crumb::{get_release_response, ReleaseItem, ReleaseTrack},
     prelude::*,
     storage,
     util::{format_time, join_with_rsx, maybe_plural, new_client},

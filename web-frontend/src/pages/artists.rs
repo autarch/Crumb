@@ -1,6 +1,6 @@
 use crate::{
-    client::ArtistListItem,
     components::AlbumCover,
+    grpc::crumb::ArtistListItem,
     page_div_classes,
     prelude::*,
     ring_flex_item_classes, storage,

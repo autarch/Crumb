@@ -1,18 +1,16 @@
 use crate::{
     client::QueueItem,
-    components::{AlbumCover, Color, UnderlineLink},
+    components::{AlbumCover, Color, ContextMenu, UnderlineLink},
     css,
     models::Queue,
     prelude::*,
     storage,
-    usehighlanders::UseHighlanders,
-    util::new_client,
-    QueueRecvResult, QueueUpdate,
+    util::{get_element, new_client},
+    ContextMenus, QueueRecvResult, QueueUpdate,
 };
-use dioxus::{core::UiEvent, events::FormData};
+use dioxus::events::FormEvent;
 use dioxus_heroicons::{solid::Shape, IconButton};
-use wasm_bindgen::JsCast;
-use web_sys::{window, HtmlAudioElement};
+use web_sys::HtmlAudioElement;
 
 const AUDIO_PLAYER_ID: &str = "audio-player";
 const DEFAULT_VOLUME: u32 = 500;
@@ -22,12 +20,10 @@ pub(crate) fn NowPlaying<'a>(
     cx: Scope,
     queue: &'a Option<QueueRecvResult>,
     queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
-    is_playing: &'a bool,
-    set_is_playing: &'a UseState<bool>,
-    context_menus: UseHighlanders,
+    is_playing: UseState<bool>,
 ) -> Element {
-    let (volume, set_volume) = use_state(&cx, || {
-        let store = *cx
+    let volume = use_state(&cx, || {
+        let store = cx
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
         store
@@ -57,16 +53,13 @@ pub(crate) fn NowPlaying<'a>(
                             PrevPlayPauseNextButtons {
                                 queue: queue,
                                 queue_tx: queue_tx.clone(),
-                                is_playing: is_playing,
-                                set_is_playing: set_is_playing,
+                                is_playing: is_playing.clone(),
                             },
                         },
                         div {
                             class: DC![C.fg.col_span_3, C.typ.text_right],
                             AdditionalButtons {
-                                volume: volume,
-                                set_volume: set_volume,
-                                context_menus: context_menus,
+                                volume: volume.clone(),
                             },
                         },
                     }
@@ -106,16 +99,8 @@ pub(crate) fn NowPlaying<'a>(
         .and_then(|q| q.as_ref().ok())
         .and_then(|q| q.as_ref().ok())
         .and_then(|q| q.current_item())
-        .and_then(|i| {
-            Some(
-                i.release_track
-                    .as_ref()
-                    .unwrap()
-                    .track_audio_uri
-                    .to_string(),
-            )
-        })
-        .unwrap_or(String::new());
+        .and_then(|i| Some(i.release_track.as_ref().unwrap().track_audio_uri.as_str()))
+        .unwrap_or("");
     let classes = css::Classes::builder()
         .classes(C![
             C.lay.fixed,
@@ -134,8 +119,8 @@ pub(crate) fn NowPlaying<'a>(
             audio {
                 id: "{AUDIO_PLAYER_ID}",
                 class: DC![C.bg.bg_black, C.siz.h_1, C.siz.w_full],
-                autoplay: format_args!("{}", if **is_playing { "true" } else { "false" }),
-                preload: format_args!("{}", if **is_playing { "auto" } else { "none" }),
+                autoplay: format_args!("{}", if *is_playing.current() { "true" } else { "false" }),
+                preload: format_args!("{}", if *is_playing.current() { "auto" } else { "none" }),
                 src: "{audio_src}",
             },
             div {
@@ -163,18 +148,17 @@ fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue) -> Element {
             rsx! {
                 div {
                     AlbumCover {
-                        uri: item.release_cover_uri.as_deref(),
+                        uri: item.release_cover_uri.as_deref().unwrap(),
                         size: 50,
                     },
                 },
                 div {
-                    class: DC![C.fg.col_span_2],
+                    class: DC![C.fg.col_span_4],
                     CurrentTrackItem {
                         item: item,
                     },
                 },
                 div {
-                    class: DC![C.fg.col_span_3],
                     ThumbButtons {
                         queue: queue,
                     },
@@ -240,7 +224,7 @@ fn ThumbButtons<'a>(cx: Scope, queue: &'a Queue) -> Element {
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
         cx.spawn(async move {
-            let response = new_client(*store).like_track(current_track_id).await;
+            let response = new_client(store).like_track(current_track_id).await;
             match response {
                 Ok(_) => (),
                 Err(e) => log::error!("Error from liking track: {e}"),
@@ -265,7 +249,7 @@ fn ThumbButtons<'a>(cx: Scope, queue: &'a Queue) -> Element {
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
         cx.spawn(async move {
-            let response = new_client(*store).dislike_track(current_track_id).await;
+            let response = new_client(store).dislike_track(current_track_id).await;
             match response {
                 Ok(_) => (),
                 Err(e) => log::error!("Error from disliking track: {e}"),
@@ -298,25 +282,23 @@ fn PrevPlayPauseNextButtons<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
     queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
-    is_playing: &'a bool,
-    set_is_playing: &'a UseState<bool>,
+    is_playing: UseState<bool>,
 ) -> Element<'a> {
     cx.render(rsx! {
         div {
             PreviousButton {
                 queue: queue,
                 queue_tx: queue_tx.clone(),
-                is_playing: is_playing,
+                is_playing: is_playing.clone(),
             }
             PlayPauseButton {
                 queue: queue,
-                is_playing: is_playing,
-                set_is_playing: set_is_playing,
+                is_playing: is_playing.clone(),
             }
             NextButton {
                 queue: queue,
                 queue_tx: queue_tx.clone(),
-                is_playing: is_playing,
+                is_playing: is_playing.clone(),
             }
         }
     })
@@ -327,17 +309,17 @@ fn PreviousButton<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
     queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
-    is_playing: &'a bool,
+    is_playing: UseState<bool>,
 ) -> Element<'a> {
     let disabled = !queue.can_move_to_previous();
     let onclick = move |_| {
         to_owned![queue_tx];
-        let should_play = **is_playing;
+        let should_play = *is_playing.current();
         let store = cx
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
         cx.spawn(async move {
-            let new_queue = new_client(*store).move_queue_backward().await;
+            let new_queue = new_client(store).move_queue_backward().await;
             if let Err(e) = queue_tx.try_send(QueueUpdate(new_queue, false)) {
                 log::error!("Error sending move queue backward result to channel: {e}");
             }
@@ -356,25 +338,20 @@ fn PreviousButton<'a>(
 }
 
 #[inline_props]
-fn PlayPauseButton<'a>(
-    cx: Scope<'a>,
-    queue: &'a Queue,
-    is_playing: &'a bool,
-    set_is_playing: &'a UseState<bool>,
-) -> Element<'a> {
+fn PlayPauseButton<'a>(cx: Scope<'a>, queue: &'a Queue, is_playing: UseState<bool>) -> Element<'a> {
     let disabled = !queue.can_play();
     let onclick = move |_| {
-        let new_state = !*is_playing;
-        set_is_playing(new_state);
+        let new_state = !*is_playing.current();
+        is_playing.set(new_state);
         play_or_pause_audio(new_state);
     };
     cx.render(rsx! {
         IconButton {
             onclick: onclick,
-            title: if **is_playing { "Pause" } else { "Play" },
+            title: if *is_playing.current() { "Pause" } else { "Play" },
             disabled: disabled,
             size: 50,
-            icon: if **is_playing { Shape::Pause } else { Shape::Play },
+            icon: if *is_playing.current() { Shape::Pause } else { Shape::Play },
         },
     })
 }
@@ -384,14 +361,14 @@ fn NextButton<'a>(
     cx: Scope<'a>,
     queue: &'a Queue,
     queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
-    is_playing: &'a bool,
+    is_playing: UseState<bool>,
 ) -> Element<'a> {
     let disabled = !queue.can_move_to_next();
     let onclick = move |_| {
         to_owned![queue_tx];
-        let should_play = **is_playing;
+        let should_play = *is_playing.current();
         let mut client = new_client(
-            *cx.consume_context::<storage::Store>()
+            cx.consume_context::<storage::Store>()
                 .expect("Could not get Store from context"),
         );
         cx.spawn(async move {
@@ -413,43 +390,29 @@ fn NextButton<'a>(
     })
 }
 
-#[derive(Debug, Props)]
-struct AdditionalButtonsProps<'a> {
-    volume: &'a u32,
-    set_volume: &'a UseState<u32>,
-    context_menus: &'a UseHighlanders,
-}
-
-//#[inline_props]
-fn AdditionalButtons<'a>(
-    cx: Scope<'a, AdditionalButtonsProps<'a>>,
-    //    volume: &'a u32,
-    //    set_volume: &'a UseState<u32>,
-    //    context_menus: &'a UseHighlanders,
-) -> Element {
-    let volume = cx.props.volume;
+#[inline_props]
+fn AdditionalButtons(cx: Scope, volume: UseState<u32>) -> Element {
     let mute_onclick = move |_| {
-        //to_owned![set_volume];
-        let set_volume = cx.props.set_volume.clone();
+        to_owned![volume];
         let store = cx
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
-        if *volume > 0 {
+        let current_volume = *volume.current();
+        if current_volume > 0 {
             store
-                .set("volume", *volume)
+                .set("volume", current_volume)
                 .expect("could not set volume in storage");
-            update_volume(0, &set_volume);
+            update_volume(0, volume);
         } else {
             let stored = store
                 .get("volume")
                 .expect("could not get volume from storage");
-            update_volume(stored.unwrap_or(DEFAULT_VOLUME), &set_volume);
+            update_volume(stored.unwrap_or(DEFAULT_VOLUME), volume);
         }
     };
 
-    let volume_onchange = move |e: UiEvent<FormData>| {
-        //to_owned![set_volume];
-        let set_volume = cx.props.set_volume.clone();
+    let volume_onchange = move |e: FormEvent| {
+        to_owned![volume];
         let store = cx
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");
@@ -461,41 +424,21 @@ fn AdditionalButtons<'a>(
         store
             .set("volume", new_volume)
             .expect("could not set volume in storage");
-        update_volume(new_volume, &set_volume);
+        update_volume(new_volume, volume);
     };
 
-    let context_menus = cx.use_hook(|_| cx.props.context_menus.clone());
-    context_menus.register("NowPlaying");
-    let context_menu_is_enabled = context_menus.is_enabled("NowPlaying");
-    log::info!("render CM = {:?}", context_menus);
+    let cm_id = "now-playing-more-actions";
+    let context_menus = use_context::<ContextMenus>(&cx).unwrap();
+    (*context_menus.write_silent()).register(cm_id);
 
-    let dots_onclick = move |_| {
-        log::info!("Enabling NowPlaying");
-        context_menus.enable("NowPlaying");
-        log::info!("onclick CM = {:?}", context_menus);
-    };
-
-    let mut context_menu_classes = vec![
-        C.lay.fixed,
-        C.spc.py_1,
-        C.spc.px_3,
-        C.bg.bg_indigo_600,
-        C.typ.text_white,
-    ];
-    if context_menu_is_enabled {
-        context_menu_classes.push(C.lay.visible);
-    } else {
-        context_menu_classes.push(C.lay.hidden);
-    }
-    log::info!("render");
     cx.render(rsx! {
         div {
             class: DC![C.lay.grid, C.fg.grid_cols_4, C.fg.items_center, C.typ.text_center],
             div {
                 IconButton {
                     onclick: mute_onclick,
-                    title: if *volume > 0 { "Mute" } else { "Unmute" },
-                    icon: if *volume > 0 { Shape::VolumeUp } else { Shape::VolumeOff },
+                    title: if *volume.current() > 0 { "Mute" } else { "Unmute" },
+                    icon: if *volume.current() > 0 { Shape::VolumeUp } else { Shape::VolumeOff },
                     size: 30,
                 },
             },
@@ -512,39 +455,40 @@ fn AdditionalButtons<'a>(
                 },
             },
             div {
-                class: DC![context_menu_classes],
-                ul {
-                    li { "Delete track" },
-                    li { "item 2" },
-                },
-            },
-            div {
-                IconButton {
-                    onclick: dots_onclick,
-                    title: "More actions",
-                    icon: Shape::DotsVertical,
-                    size: 30,
+                ContextMenu {
+                    id: "{cm_id}",
+                    div {
+                        IconButton {
+                            title: "More actions",
+                            icon: Shape::DotsVertical,
+                            size: 30,
+                        },
+                    },
+                    ul {
+                        li { "Delete track" },
+                        li { "item 2" },
+                    },
                 },
             },
         }
     })
 }
 
-fn update_volume(new_volume: u32, set_volume: &UseState<u32>) {
+fn update_volume(new_volume: u32, volume: UseState<u32>) {
     // We don't interact with the store here, because we don't want to write
     // the volume to the store every time it's changed. That's because we use
     // the store to _save_ the volume when the mute button is clicked. Then we
     // read it from the store on unmute. If we stored it here, then we'd store
     // the 0 volume from the mute, which means that unmute wouldn't be able to
     // get the previous volume back.
-    set_volume(new_volume);
-    get_audio_element()
+    volume.set(new_volume);
+    get_element::<HtmlAudioElement>(AUDIO_PLAYER_ID)
         .expect("Could not get audio element")
         .set_volume(new_volume as f64 / 1000.0);
 }
 
 fn play_or_pause_audio(should_play: bool) {
-    if let Some(audio) = get_audio_element() {
+    if let Some(audio) = get_element::<HtmlAudioElement>(AUDIO_PLAYER_ID) {
         if should_play {
             if let Err(e) = audio.play() {
                 log::error!("Could not call play() on audio element: {:?}", e);
@@ -555,33 +499,4 @@ fn play_or_pause_audio(should_play: bool) {
             }
         }
     }
-}
-
-fn get_audio_element() -> Option<HtmlAudioElement> {
-    match window() {
-        Some(w) => match w.document() {
-            Some(d) => match d.get_element_by_id(AUDIO_PLAYER_ID) {
-                Some(a) => match a.dyn_into::<HtmlAudioElement>() {
-                    Ok(a) => return Some(a),
-                    Err(_) => {
-                        log::error!("Could not cast audio player element into an HtmlAudioElement");
-                    }
-                },
-                None => {
-                    log::error!(
-                        "Could not get {} element from web-sys document",
-                        AUDIO_PLAYER_ID
-                    );
-                }
-            },
-            None => {
-                log::error!("Could not get document from web-sys window");
-            }
-        },
-        None => {
-            log::error!("Could not get window from web-sys");
-        }
-    }
-
-    None
 }

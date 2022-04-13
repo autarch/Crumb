@@ -14,52 +14,69 @@ mod util;
 mod prelude {
     pub(crate) use crate::css::*;
     pub(crate) use dioxus::prelude::*;
+    pub(crate) use dioxus::core::to_owned;
 }
 
 use crate::prelude::*;
 use crate::{pages::*, util::new_client};
-use dioxus::router::*;
 use futures_util::StreamExt;
 use models::Queue;
-use usehighlanders::use_highlanders;
+use std::ops::{Deref, DerefMut};
+use usehighlanders::Highlanders;
 
 type QueueFetchResult = Result<Queue, client::Error>;
 type QueueRecvResult = Result<QueueFetchResult, futures_channel::mpsc::TryRecvError>;
 
 struct QueueUpdate(QueueFetchResult, bool);
 
+#[derive(Debug)]
+struct ContextMenus(Highlanders);
+
+impl Deref for ContextMenus {
+    type Target = Highlanders;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ContextMenus {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 fn main() {
-    wasm_logger::init(wasm_logger::Config::new(log::Level::Trace));
+    wasm_logger::init(wasm_logger::Config::new(log::Level::Debug));
     dioxus::web::launch(App)
 }
 
 fn App(cx: Scope) -> Element {
     cx.use_hook(|_| cx.provide_context(storage::Store::default()));
 
-    let (is_playing, set_is_playing) = use_state(&cx, || false);
-    let (queue, set_queue) = use_state(&cx, || None);
+    let is_playing = use_state(&cx, || false);
+    let queue = use_state(&cx, || None);
     let queue_tx = cx.use_hook(|_| {
         let (tx, mut rx) = futures_channel::mpsc::channel::<QueueUpdate>(3);
         let mut client = new_client(
-            *cx.consume_context::<storage::Store>()
+            cx.consume_context::<storage::Store>()
                 .expect("Could not get Store from context"),
         );
 
         cx.spawn({
-            to_owned![set_is_playing, set_queue, tx];
+            to_owned![is_playing, queue, tx];
             async move {
-                let queue = client.get_queue().await;
-                if let Err(e) = tx.try_send(QueueUpdate(queue, false)) {
+                let new_queue = client.get_queue().await;
+                if let Err(e) = tx.try_send(QueueUpdate(new_queue, false)) {
                     log::error!("Error sending initial load of queue to channel: {}", e);
                     return;
                 }
 
                 loop {
                     match rx.next().await {
-                        Some(QueueUpdate(queue, start_playing)) => {
-                            set_queue(Some(Ok(queue)));
+                        Some(QueueUpdate(new_queue, start_playing)) => {
+                            queue.set(Some(Ok(new_queue)));
                             if start_playing {
-                                set_is_playing(true);
+                                is_playing.set(true);
                             }
                         }
                         None => {
@@ -74,7 +91,12 @@ fn App(cx: Scope) -> Element {
         tx
     });
 
-    let context_menus = use_highlanders(&cx);
+    let context_menus = ContextMenus(Highlanders::default());
+    use_context_provider(&cx, move || context_menus);
+    let context_menus = use_context::<ContextMenus>(&cx).unwrap();
+    let page_onclick = move |_| {
+        context_menus.write().disable_all();
+    };
 
     let page_classes = css::Classes::builder()
         .classes(C![C.spc.pt_20, C.spc.pb_16, C.siz.h_full])
@@ -84,6 +106,7 @@ fn App(cx: Scope) -> Element {
     cx.render(rsx! {
         Router {
             div {
+                onclick: page_onclick,
                 class: DC![C.typ.font_sans],
                 menu::Menu {},
                 section {
@@ -95,16 +118,13 @@ fn App(cx: Scope) -> Element {
                         CrumbRoutes {
                             queue: queue,
                             queue_tx: queue_tx.clone(),
-                            is_playing: is_playing,
-                            set_is_playing: set_is_playing,
+                            is_playing: is_playing.clone(),
                         },
                     },
                     now_playing::NowPlaying {
                         queue: queue,
                         queue_tx: queue_tx.clone(),
-                        is_playing: is_playing,
-                        set_is_playing: set_is_playing,
-                        context_menus: context_menus.clone(),
+                        is_playing: is_playing.clone(),
                     },
                 },
             },
@@ -117,8 +137,7 @@ fn CrumbRoutes<'a>(
     cx: Scope,
     queue: &'a Option<QueueRecvResult>,
     queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
-    is_playing: &'a bool,
-    set_is_playing: &'a UseState<bool>,
+    is_playing: UseState<bool>,
 ) -> Element {
     cx.render(rsx! {
         Route {
@@ -152,8 +171,7 @@ fn CrumbRoutes<'a>(
             queue::Queue {
                 queue: queue,
                 queue_tx: queue_tx.clone(),
-                is_playing: is_playing,
-                set_is_playing: set_is_playing,
+                is_playing: is_playing.clone(),
             },
         },
     })

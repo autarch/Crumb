@@ -1,11 +1,11 @@
 use crate::{
     client::QueueItem,
-    components::{AlbumCover, Color, Table, Td, Tr, UnderlineLink},
+    components::{AlbumCover, Color, ContextMenu, Table, Td, Tr, UnderlineLink},
     models::Queue,
     prelude::*,
     storage,
     util::{format_time, maybe_plural, new_client},
-    QueueRecvResult, QueueUpdate,
+    ContextMenus, QueueRecvResult, QueueUpdate,
 };
 use dioxus_heroicons::{solid::Shape, IconButton};
 
@@ -14,15 +14,14 @@ pub(crate) fn Queue<'a>(
     cx: Scope,
     queue: &'a Option<QueueRecvResult>,
     queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
-    is_playing: &'a bool,
-    set_is_playing: &'a UseState<bool>,
+    is_playing: UseState<bool>,
 ) -> Element {
     let content = match queue {
         Some(queue) => match queue {
             Ok(queue) => match queue {
                 Ok(queue) => {
                     rsx! {
-                        Tracks {
+                        LoadedQueue {
                             queue: queue,
                             queue_tx: queue_tx.clone(),
                         }
@@ -49,7 +48,6 @@ pub(crate) fn Queue<'a>(
             }
         },
         None => {
-            log::info!("queue is None");
             rsx! {
                 div {
                     class: DC![C.fg.col_span_7],
@@ -63,7 +61,7 @@ pub(crate) fn Queue<'a>(
 }
 
 #[inline_props]
-fn Tracks<'a>(
+fn LoadedQueue<'a>(
     cx: Scope,
     queue: &'a Queue,
     queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
@@ -83,20 +81,23 @@ fn Tracks<'a>(
             })
         }
     };
-    let table_class = C![C.siz.w_3_of_5];
+    let table_class = C![C.siz.w_1_of_2];
     let content = match queue.visible_items() {
         None => rsx! { "Queue is empty" },
         Some(items) => rsx! {
             AlbumCover {
-                class: C![C.lay.fixed, C.siz.w_2_of_5, C.spc.pr_8],
-                uri: items[0].release_cover_uri.as_deref(),
+                class: C![C.lay.fixed, C.siz.w_1_of_2, C.spc.pr_8],
+                uri: items[0].release_cover_uri.as_deref().unwrap(),
                 round: false,
                 border: false,
             },
             div {
                 class: DC![C.lay.flex, C.fg.flex_row],
+                // This is a spacer so the table appears to the right of fixed
+                // position album cover. It needs to be the same width as the
+                // AlbumCover.
                 div {
-                    class: DC![C.siz.w_2_of_5],
+                    class: DC![C.siz.w_1_of_2],
                 },
                 Table {
                     class: "{table_class}",
@@ -130,24 +131,30 @@ fn OneQueueItem<'a>(
     let time = format_time(track.length.unwrap_or(0));
     let td_class = C![C.spc.py_2];
     let icon_class = C![C.spc.p_1, C.bg.bg_indigo_400];
-    let on_delete_click = move |_| {
+    let delete_onclick = move |_| {
         to_owned![queue_tx];
-        let s = cx
-            .consume_context::<storage::Store>()
-            .expect("Could not get Store from context");
+        let mut client = new_client(
+            cx.consume_context::<storage::Store>()
+                .expect("Could not get Store from context"),
+        );
         let queue_position = item.queue_position.clone();
         cx.spawn(async move {
-            let new_queue = new_client(*s).remove_from_queue(vec![queue_position]).await;
+            let new_queue = client.remove_from_queue(vec![queue_position]).await;
             if let Err(e) = queue_tx.try_send(QueueUpdate(new_queue, false)) {
                 log::error!("Error sending remove_from_queue result to channel: {e}");
             }
         });
     };
+
+    let cm_id = format!("queue-track-{}", item.queue_position);
+    let context_menus = use_context::<ContextMenus>(&cx).unwrap();
+    (*context_menus.write_silent()).register(&cm_id);
+
     cx.render(rsx! {
         Tr {
             Td {
                 AlbumCover {
-                    uri: item.release_cover_uri.as_deref(),
+                    uri: item.release_cover_uri.as_deref().unwrap(),
                     size: 30,
                     border: false,
                 },
@@ -176,16 +183,26 @@ fn OneQueueItem<'a>(
                     class: "{icon_class}",
                     fill: "white",
                     title: "Remove from queue",
-                    size: 20,
+                    size: 15,
                     icon: Shape::X,
-                    onclick: on_delete_click,
+                    onclick: delete_onclick,
                 },
             },
             Td {
-                IconButton {
-                    title: "More actions",
-                    icon: Shape::DotsVertical,
-                    size: 20,
+                ContextMenu {
+                    id: "{cm_id}",
+                    div {
+                        class: DC![C.fg.items_center],
+                        IconButton {
+                            title: "More actions",
+                            icon: Shape::DotsVertical,
+                            size: 20,
+                        },
+                    },
+                    ul {
+                        li { "Delete track" },
+                        li { "item 2" },
+                    },
                 },
             },
         },

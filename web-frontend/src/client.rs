@@ -66,7 +66,10 @@ impl Client<grpc_web_client::Client> {
             .into_inner())
     }
 
-    pub(crate) async fn get_release(&mut self, release_id: &str) -> Result<GetReleaseResponse, Error> {
+    pub(crate) async fn get_release(
+        &mut self,
+        release_id: &str,
+    ) -> Result<GetReleaseResponse, Error> {
         Ok(self
             .grpc_client
             .get_release(tonic::Request::new(GetReleaseRequest {
@@ -109,7 +112,10 @@ impl Client<grpc_web_client::Client> {
         self.queue_items_from_stream(res).await
     }
 
-    pub(crate) async fn remove_from_queue(&mut self, positions: Vec<String>) -> Result<Queue, Error> {
+    pub(crate) async fn remove_from_queue(
+        &mut self,
+        positions: Vec<String>,
+    ) -> Result<Queue, Error> {
         let res = self
             .grpc_client
             .remove_from_queue(tonic::Request::new(RemoveFromQueueRequest {
@@ -176,6 +182,18 @@ impl ArtistListItem {
     pub(crate) fn url(&self) -> String {
         artist_url(&self.artist_id)
     }
+
+    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
+        [self.display_name.as_str()].into_iter().chain(
+            [
+                self.name.as_str(),
+                self.translated_name.as_deref().unwrap_or(""),
+                self.transcripted_name.as_deref().unwrap_or(""),
+            ]
+            .into_iter()
+            .filter(|t| !(t.is_empty() || *t == self.display_name.as_str())),
+        )
+    }
 }
 
 impl ReleaseListItem {
@@ -191,6 +209,35 @@ impl ReleaseListItem {
                 None => default.to_string(),
             },
         }
+    }
+
+    pub(crate) fn titles(&self) -> impl Iterator<Item = &str> {
+        [self.display_title.as_str()].into_iter().chain(
+            [
+                self.title.as_str(),
+                self.translated_title.as_deref().unwrap_or(""),
+                self.transcripted_title.as_deref().unwrap_or(""),
+            ]
+            .into_iter()
+            .filter(|t| !(t.is_empty() || *t == self.display_title.as_str())),
+        )
+    }
+}
+
+impl ReleaseTrack {
+    pub(crate) fn titles(&self) -> impl Iterator<Item = &str> {
+        [Some(self.display_title.as_str())]
+            .into_iter()
+            .chain(
+                [
+                    Some(self.title.as_str()),
+                    self.translated_title.as_deref(),
+                    self.transcripted_title.as_deref(),
+                ]
+                .into_iter()
+                .filter(|t| t.is_some() && t.unwrap() != self.display_title),
+            )
+            .flatten()
     }
 }
 

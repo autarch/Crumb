@@ -1,5 +1,6 @@
-use crate::prelude::*;
-use dioxus::router::Link;
+use crate::{prelude::*, util::get_element, ContextMenus};
+use dioxus::{events::MouseEvent, router::Link};
+use web_sys::HtmlElement;
 
 #[inline_props]
 pub(crate) fn PageTitle<'a>(cx: Scope, children: Element<'a>) -> Element {
@@ -68,6 +69,8 @@ pub struct AlbumCoverProps<'a> {
     round: bool,
     #[props(default = true)]
     border: bool,
+    #[props(default = false)]
+    lazy: bool,
 }
 
 pub(crate) fn AlbumCover<'a>(cx: Scope<'a, AlbumCoverProps<'a>>) -> Element<'a> {
@@ -91,6 +94,7 @@ pub(crate) fn AlbumCover<'a>(cx: Scope<'a, AlbumCoverProps<'a>>) -> Element<'a> 
             ]);
         }
     }
+    let loading = if cx.props.lazy { "lazy" } else { "eager" };
     cx.render(rsx! {
         img {
             // This is already set on the containing a{} element. Is needing
@@ -100,6 +104,7 @@ pub(crate) fn AlbumCover<'a>(cx: Scope<'a, AlbumCoverProps<'a>>) -> Element<'a> 
             height: "{cx.props.size}",
             width: "{cx.props.size}",
             src: "{src}",
+            "loading": "{loading}",
         }
     })
 }
@@ -171,5 +176,164 @@ pub(crate) fn Td<'a>(cx: Scope<'a, TdAttributes<'a>>) -> Element<'a> {
             colspan: "{colspan}",
             &cx.props.children,
         },
+    })
+}
+
+#[derive(Props)]
+pub(crate) struct ContextMenuAttributes<'a> {
+    id: &'a str,
+    #[props(default, strip_option)]
+    class: Option<&'a str>,
+    children: Element<'a>,
+}
+
+pub(crate) fn ContextMenu<'a>(cx: Scope<'a, ContextMenuAttributes<'a>>) -> Element<'a> {
+    let context_menus = use_context::<ContextMenus>(&cx).unwrap();
+    let context_menu_id = cx.props.id;
+
+    (*context_menus.write_silent()).register(context_menu_id);
+    let context_menu_is_enabled = context_menus.read().is_enabled(context_menu_id);
+
+    let mut context_menu_classes = vec![
+        C.lay.absolute,
+        C.lay.z_50,
+        C.siz.w_1_of_12,
+        C.spc.py_1,
+        C.spc.px_3,
+        C.bg.bg_indigo_600,
+        C.typ.text_left,
+        C.typ.text_sm,
+        C.typ.text_white,
+        if context_menu_is_enabled {
+            C.lay.visible
+        } else {
+            C.lay.hidden
+        },
+    ];
+    if let Some(c) = cx.props.class.as_ref() {
+        context_menu_classes.push(c);
+    }
+
+    let (control_elt, menu_elt) = match cx.props.children {
+        Some(VNode::Fragment(f)) => {
+            if f.children.len() != 2 {
+                panic!("Need exactly two nodes!");
+            }
+            match (&f.children[0], &f.children[1]) {
+                (VNode::Element(c), VNode::Element(r)) => (*c, *r),
+                _ => panic!("The children nodes need to be elements: {:#?}", f.children),
+            }
+        }
+        _ => panic!("urp"),
+    };
+
+    let control_id = format!("{}-context-menu-control", context_menu_id);
+    let control_id_clone = control_id.clone();
+
+    let factory = NodeFactory::new(&cx.scope);
+    let control_onclick = dioxus_elements::on::onclick(factory, move |e: MouseEvent| {
+        log::warn!("clicked {context_menu_id}");
+        // If we don't cancel this then the page's onclick handler sees the
+        // click as well and disables all context menus.
+        e.cancel_bubble();
+        let is_enabled = context_menus.read().is_enabled(context_menu_id);
+        log::warn!("{context_menu_id} is enabled? {is_enabled:?}");
+
+        let menu = get_element::<HtmlElement>(context_menu_id).unwrap();
+        let menu_style = menu.style();
+
+        if is_enabled {
+            (*context_menus.write()).disable(&context_menu_id);
+            return;
+        }
+
+        let control = get_element::<HtmlElement>(&control_id_clone).unwrap();
+        log::warn!("got control");
+        let control_rect = control.get_bounding_client_rect();
+
+        menu.set_class_name(&menu.class_name().replace("hidden", "visible"));
+        // We need to make it visible so we can calculate its dimensions, but
+        // we don't want it to be on screen yet.
+        menu_style.set_property("left", "-10000px").unwrap();
+
+        let menu_rect = menu.get_bounding_client_rect();
+        // This is distance in pixels from the edge of the control element to
+        // the middle of dots icon.
+        let width_to_dots = control_rect.width() / 2.0;
+        let transform = format!(
+            "translateX({}px) translateY({}px)",
+            // If the menu is wider than the distance to the dots, this moves
+            // it left so the menu's right edge appears above the dots. If
+            // it's thinner than the distance to the dots it moves it right.
+            width_to_dots - menu_rect.width(),
+            -1.0 * (menu_rect.height() + 3.0),
+        );
+        log::warn!("menu transform = {transform}");
+        menu_style.set_property("transform", &transform).unwrap();
+        menu_style.remove_property("left").unwrap();
+
+        (*context_menus.write()).enable(context_menu_id);
+    });
+
+    let new_control_attrs = control_elt
+        .attributes
+        .iter()
+        .map(|a| a.clone())
+        .chain([factory.attr("id", format_args!("{}", control_id), None, false)])
+        .collect::<Vec<_>>();
+    let new_control_listeners = control_elt
+        .listeners
+        .iter()
+        .map(|l| factory.listener(l.event, l.callback))
+        .chain([control_onclick])
+        .collect::<Vec<_>>();
+    let new_control_elt = factory.raw_element(
+        control_elt.tag,
+        control_elt.namespace,
+        factory.bump().alloc(new_control_listeners),
+        factory.bump().alloc(new_control_attrs),
+        control_elt.children,
+        // It's not possible to create this in its own statement _nor_ can we
+        // match the original key and Some(format_args!(...)) or None. The
+        // value that `format_args!` produces is a temporary reference that
+        // cannot be stored locally. It'd be nice if raw_element was able to
+        // just take some text instead of an Option<Arguments>.
+        Some(format_args!(
+            "{}",
+            match control_elt.key {
+                Some(k) => k.clone(),
+                None => "",
+            }
+        )),
+    );
+
+    let new_rest_attrs = menu_elt
+        .attributes
+        .iter()
+        .map(|a| a.clone())
+        .chain([factory.attr("id", format_args!("{}", context_menu_id), None, false)])
+        .collect::<Vec<_>>();
+    let new_rest_elt = factory.raw_element(
+        menu_elt.tag,
+        menu_elt.namespace,
+        menu_elt.listeners,
+        factory.bump().alloc(new_rest_attrs),
+        menu_elt.children,
+        Some(format_args!(
+            "{}",
+            match menu_elt.key {
+                Some(k) => k.clone(),
+                None => "",
+            }
+        )),
+    );
+
+    cx.render(rsx! {
+        div {
+            id: "{context_menu_id}",
+            class: DC![context_menu_classes],
+            [new_rest_elt],
+        },
+        [new_control_elt],
     })
 }

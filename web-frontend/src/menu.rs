@@ -115,9 +115,7 @@ pub(crate) fn MenuItem(
     href: &'static str,
     title: &'static str,
 ) -> Element {
-    let location = use_route(&cx).current_location();
-    let is_active = location.path() == *href;
-    let mut class = C![
+    let class = C![
         C.lay.block,
         C.spc.mt_4,
         M![M.lg, C.lay.inline_block],
@@ -125,16 +123,13 @@ pub(crate) fn MenuItem(
         M![M.lg, C.spc.mr_8,]
         C.spc.p_2,
         C.bor.rounded,
+        C.typ.text_slate_100,
     ];
-    class.push(' ');
-    if is_active {
-        class.push_str(&C![C.typ.text_slate_50, C.bg.bg_blue_500]);
-    } else {
-        class.push_str(&C![C.typ.text_slate_100]);
-    }
+    let active_class = C![C.typ.text_slate_50, C.bg.bg_blue_500];
     cx.render(rsx! {
         Link {
             class: "{class}",
+            active_class: "{active_class}",
             to: "{href}",
             title: "{title}",
             "{text}",

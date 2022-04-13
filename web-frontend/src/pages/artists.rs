@@ -4,14 +4,14 @@ use crate::{
     page_div_classes,
     prelude::*,
     ring_flex_item_classes, storage,
-    util::{maybe_plural, new_client},
+    util::{join_with_rsx, maybe_plural, new_client},
 };
 use dioxus::router::Link;
 
 pub(crate) fn Artists<'a>(cx: Scope) -> Element {
-    let artists = use_future(&cx, || {
+    let artists = use_future(&cx, (), |_| {
         let mut client = new_client(
-            *cx.consume_context::<storage::Store>()
+            cx.consume_context::<storage::Store>()
                 .expect("Could not get Store from context"),
         );
         async move { client.get_artists().await }
@@ -50,6 +50,9 @@ fn OneArtist<'a>(cx: Scope, artist: &'a ArtistListItem) -> Element {
     let track_count = maybe_plural(artist.track_count, "track");
     let artist_url = artist.url();
     let link_class = C![C.typ.text_lg];
+    let names = join_with_rsx(artist.names().collect(), || {
+        rsx! { br { } }
+    });
     cx.render(rsx! {
         div {
             class: format_args!("{}", ring_flex_item_classes()),
@@ -58,16 +61,17 @@ fn OneArtist<'a>(cx: Scope, artist: &'a ArtistListItem) -> Element {
                 Link {
                     to: "{artist_url}",
                     AlbumCover {
-                        uri: artist.release_cover_uri.as_deref(),
+                        uri: artist.release_cover_uri.as_deref().unwrap(),
+                        lazy: true,
                     },
                 },
             },
             div {
-                class: "text-center",
+                class: DC![C.typ.text_center],
                 Link {
                     class: "{link_class}",
                     to: "{artist_url}",
-                    "{artist.display_name}",
+                    names,
                 },
                 br { },
                 "{release_count}",

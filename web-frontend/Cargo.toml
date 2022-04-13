@@ -7,11 +7,12 @@ edition = "2021"
 
 [dependencies]
 dioxus = { path = "../../dioxus", features = [ "router", "web" ] }
-#dioxus = { version = "~0.1, >= 0.1.8", features = ["router", "web"] }
+#dioxus = { version = "0.2.0", features = ["router", "web"] }
 dioxus-heroicons = { path = "../../dioxus-heroicons" }
 futures-channel = "0.3.21"
 futures-util = "0.3.21"
 gloo-storage = "~0.2"
+gloo-utils = "0.1.2"
 #grpc-web-client = { version = "~0.1", git = "https://github.com/titanous/grpc-web-client", rev = "dd15cde2f36ab10546c332a7bbcb55b1738018a5" }
 grpc-web-client = { version = "~0.1", path = "../../grpc-web-client/grpc-web-client" }
 #log = "0.4.14"
@@ -30,12 +31,14 @@ wasm-bindgen = "~0.2"
 wasm-logger = { path = "../../wasm-logger" }
 
 [dependencies.web-sys]
-version = "~0.3"
+version = "0.3.56"
 features = [
+    "CssStyleDeclaration",
     "Document",
+    "DomRect",
     "Element",
     "HtmlAudioElement",
-    "HtmlMediaElement",
+    "HtmlElement",
     "Window",
 ]
 

@@ -257,6 +257,7 @@ fn OneTrack<'a>(cx: Scope, track: &'a ReleaseTrack) -> Element {
                 ContextMenu {
                     id: "{cm_id}",
                     div {
+                        class: DC![C.typ.text_center],
                         IconButton {
                             title: "More actions",
                             icon: Shape::DotsVertical,

@@ -192,7 +192,7 @@ fn OneQueueItem<'a>(
                 ContextMenu {
                     id: "{cm_id}",
                     div {
-                        class: DC![C.fg.items_center],
+                        class: DC![C.typ.text_center],
                         IconButton {
                             title: "More actions",
                             icon: Shape::DotsVertical,

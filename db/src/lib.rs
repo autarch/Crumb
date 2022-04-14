@@ -1206,7 +1206,8 @@ impl DB {
         }
 
         let delete = r#"
-            DELETE FROM crumb.user_queue
+            DELETE
+              FROM crumb.user_queue
              WHERE user_id = $1
                AND client_id = $2
                AND position = ANY($3)
@@ -1215,6 +1216,29 @@ impl DB {
             .bind(&user.user_id)
             .bind(client_id)
             .bind(positions)
+            .execute(&self.pool)
+            .await?;
+
+        // If we just deleted the current track we need to set a new current
+        // track.
+        let update = r#"
+            UPDATE crumb.user_queue
+               SET is_current = TRUE
+             WHERE position = COALESCE(
+                       ( SELECT position
+                           FROM crumb.user_queue
+                          WHERE user_id = $1
+                            AND client_id = $2
+                            AND is_current ),
+                       ( SELECT MIN(position)
+                           FROM crumb.user_queue
+                          WHERE user_id = $1
+                            AND client_id = $2 )
+                   )
+        "#;
+        sqlx::query(&update)
+            .bind(&user.user_id)
+            .bind(client_id)
             .execute(&self.pool)
             .await?;
 

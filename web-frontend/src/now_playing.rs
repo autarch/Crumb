@@ -315,6 +315,15 @@ fn PreviousButton<'a>(
     let onclick = move |_| {
         to_owned![queue_tx];
         let should_play = *is_playing.current();
+        if should_play {
+            if let Some(audio) = get_element::<HtmlAudioElement>(AUDIO_PLAYER_ID) {
+                if audio.current_time() > 5.0 {
+                    audio.set_current_time(0.0);
+                    return;
+                }
+            }
+        }
+
         let store = cx
             .consume_context::<storage::Store>()
             .expect("Could not get Store from context");

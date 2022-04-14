@@ -217,7 +217,13 @@ fn LoadedRelease<'a>(
 
 #[inline_props]
 fn Tracks<'a>(cx: Scope<'a>, tracks: &'a [ReleaseTrack]) -> Element {
-    let class = C![C.spc.mt_8, C.spc.ml_2];
+    let class = C![
+        M![M.lg, C.siz.w_3_of_5],
+        M![M.md, C.siz.w_3_of_4],
+        C.siz.w_full,
+        C.spc.mt_8,
+        C.spc.ml_2
+    ];
     cx.render(rsx! {
         Table {
             class: "{class}",
@@ -242,18 +248,25 @@ fn OneTrack<'a>(cx: Scope, track: &'a ReleaseTrack) -> Element {
     let context_menus = use_context::<ContextMenus>(&cx).unwrap();
     (*context_menus.write_silent()).register(&cm_id);
 
+    // Applying this padding to the row doesn't seem to do anything to the
+    // layout.
+    let td_class = C![C.spc.pt_0_p_5, C.spc.pb_0_p_5];
     cx.render(rsx! {
         Tr {
             Td {
-                "{track.position}."
+                class: "{td_class}",
+                "{track.position}"
             },
             Td {
+                class: "{td_class}",
                 titles,
             },
             Td {
+                class: "{td_class}",
                 "{time}",
             },
             Td {
+                class: "{td_class}",
                 ContextMenu {
                     id: "{cm_id}",
                     div {

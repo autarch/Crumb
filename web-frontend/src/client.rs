@@ -12,17 +12,6 @@ pub(crate) enum Error {
         #[from]
         source: tonic::Status,
     },
-    #[error("unexpected error response for {request:} with code {code:}: {message:}")]
-    UnexpectedErrorResponse {
-        request: &'static str,
-        code: tonic::Code,
-        message: String,
-    },
-    #[error("unexpected empty response for {request:}: {message:}")]
-    UnexpectedEmptyResponse {
-        request: &'static str,
-        message: &'static str,
-    },
 }
 
 #[derive(Debug, Clone)]

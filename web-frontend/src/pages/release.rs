@@ -210,13 +210,18 @@ fn LoadedRelease<'a>(
             },
             Tracks {
                 tracks: &release.tracks,
+                queue_tx: queue_tx.clone(),
             },
         },
     })
 }
 
 #[inline_props]
-fn Tracks<'a>(cx: Scope<'a>, tracks: &'a [ReleaseTrack]) -> Element {
+fn Tracks<'a>(
+    cx: Scope<'a>,
+    tracks: &'a [ReleaseTrack],
+    queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
+) -> Element {
     let class = C![
         M![M.lg, C.siz.w_3_of_5],
         M![M.md, C.siz.w_3_of_4],
@@ -231,6 +236,7 @@ fn Tracks<'a>(cx: Scope<'a>, tracks: &'a [ReleaseTrack]) -> Element {
                 OneTrack {
                     key: "{t.track_id}",
                     track: t,
+                    queue_tx: queue_tx.clone(),
                 }
             })
         }
@@ -238,7 +244,11 @@ fn Tracks<'a>(cx: Scope<'a>, tracks: &'a [ReleaseTrack]) -> Element {
 }
 
 #[inline_props]
-fn OneTrack<'a>(cx: Scope, track: &'a ReleaseTrack) -> Element {
+fn OneTrack<'a>(
+    cx: Scope,
+    track: &'a ReleaseTrack,
+    queue_tx: futures_channel::mpsc::Sender<QueueUpdate>,
+) -> Element {
     let titles = join_with_rsx(track.titles().collect(), || {
         rsx! { "-" }
     });
@@ -248,9 +258,43 @@ fn OneTrack<'a>(cx: Scope, track: &'a ReleaseTrack) -> Element {
     let context_menus = use_context::<ContextMenus>(&cx).unwrap();
     (*context_menus.write_silent()).register(&cm_id);
 
+    let track_id = &track.track_id;
+
+    let play_onclick = move |_| {
+        to_owned![queue_tx];
+        to_owned![track_id];
+        let s = cx
+            .consume_context::<storage::Store>()
+            .expect("Could not get Store from context");
+        cx.spawn(async move {
+            let new_queue = new_client(s).replace_queue(vec![track_id]).await;
+            if let Err(e) = queue_tx.try_send(QueueUpdate(new_queue, true)) {
+                log::error!("Error sending replace_queue result to channel: {e}");
+            }
+        });
+    };
+    let enqueue_onclick = move |_| {
+        to_owned![queue_tx];
+        to_owned![track_id];
+        let mut client = new_client(
+            cx.consume_context::<storage::Store>()
+                .expect("Could not get Store from context"),
+        );
+        cx.spawn(async move {
+            let new_queue = client.add_to_queue(vec![track_id]).await;
+            if let Err(e) = queue_tx.try_send(QueueUpdate(new_queue, false)) {
+                log::error!("Error sending add_to_queue result to channel: {e}");
+            }
+        });
+    };
+
     // Applying this padding to the row doesn't seem to do anything to the
     // layout.
     let td_class = C![C.spc.pt_0_p_5, C.spc.pb_0_p_5];
+    let play_class = C![C.spc.mr_1, C.spc.p_1, C.bg.bg_indigo_400];
+    let enqueue_class = C![C.spc.p_1, C.bg.bg_indigo_400];
+    let icon_class = C![C.lay.inline_block, C.typ.align_middle,];
+
     cx.render(rsx! {
         Tr {
             Td {
@@ -264,6 +308,27 @@ fn OneTrack<'a>(cx: Scope, track: &'a ReleaseTrack) -> Element {
             Td {
                 class: "{td_class}",
                 "{time}",
+            },
+            Td {
+                class: "{td_class}",
+                IconButton {
+                    onclick: play_onclick,
+                    class: "{play_class}",
+                    icon_class: "{icon_class}",
+                    size: 12,
+                    icon: Shape::Play,
+                    fill: "white",
+                    title: "Play track immediately, replacing the current queue",
+                },
+                IconButton {
+                    onclick: enqueue_onclick,
+                    class: "{enqueue_class}",
+                    icon_class: "{icon_class}",
+                    size: 12,
+                    icon: Shape::InboxIn,
+                    fill: "white",
+                    title: "Add track to the end of the queue",
+                },
             },
             Td {
                 class: "{td_class}",

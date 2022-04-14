@@ -1,5 +1,5 @@
 use crate::{prelude::*, util::get_element, ContextMenus};
-use dioxus::{events::MouseEvent, router::Link};
+use dioxus::{core::Listener, events::MouseEvent, router::Link};
 use web_sys::HtmlElement;
 
 #[inline_props]
@@ -228,52 +228,10 @@ pub(crate) fn ContextMenu<'a>(cx: Scope<'a, ContextMenuAttributes<'a>>) -> Eleme
     };
 
     let control_id = format!("{}-context-menu-control", context_menu_id);
-    let control_id_clone = control_id.clone();
 
     let factory = NodeFactory::new(&cx.scope);
-    let control_onclick = dioxus_elements::on::onclick(factory, move |e: MouseEvent| {
-        log::warn!("clicked {context_menu_id}");
-        // If we don't cancel this then the page's onclick handler sees the
-        // click as well and disables all context menus.
-        e.cancel_bubble();
-        let is_enabled = context_menus.read().is_enabled(context_menu_id);
-        log::warn!("{context_menu_id} is enabled? {is_enabled:?}");
-
-        let menu = get_element::<HtmlElement>(context_menu_id).unwrap();
-        let menu_style = menu.style();
-
-        if is_enabled {
-            (*context_menus.write()).disable(&context_menu_id);
-            return;
-        }
-
-        let control = get_element::<HtmlElement>(&control_id_clone).unwrap();
-        log::warn!("got control");
-        let control_rect = control.get_bounding_client_rect();
-
-        menu.set_class_name(&menu.class_name().replace("hidden", "visible"));
-        // We need to make it visible so we can calculate its dimensions, but
-        // we don't want it to be on screen yet.
-        menu_style.set_property("left", "-10000px").unwrap();
-
-        let menu_rect = menu.get_bounding_client_rect();
-        // This is distance in pixels from the edge of the control element to
-        // the middle of dots icon.
-        let width_to_dots = control_rect.width() / 2.0;
-        let transform = format!(
-            "translateX({}px) translateY({}px)",
-            // If the menu is wider than the distance to the dots, this moves
-            // it left so the menu's right edge appears above the dots. If
-            // it's thinner than the distance to the dots it moves it right.
-            width_to_dots - menu_rect.width(),
-            -1.0 * (menu_rect.height() + 3.0),
-        );
-        log::warn!("menu transform = {transform}");
-        menu_style.set_property("transform", &transform).unwrap();
-        menu_style.remove_property("left").unwrap();
-
-        (*context_menus.write()).enable(context_menu_id);
-    });
+    let control_onclick =
+        context_menu_onclick_listener(factory, context_menus, context_menu_id, control_id.clone());
 
     let new_control_attrs = control_elt
         .attributes
@@ -335,5 +293,52 @@ pub(crate) fn ContextMenu<'a>(cx: Scope<'a, ContextMenuAttributes<'a>>) -> Eleme
             [new_rest_elt],
         },
         [new_control_elt],
+    })
+}
+
+fn context_menu_onclick_listener<'bump>(
+    factory: NodeFactory<'bump>,
+    context_menus: UseSharedState<'bump, ContextMenus>,
+    context_menu_id: &'bump str,
+    control_id: String,
+) -> Listener<'bump> {
+    dioxus_elements::on::onclick(factory, move |e: MouseEvent| {
+        // If we don't cancel this then the page's onclick handler sees the
+        // click as well and disables all context menus.
+        e.cancel_bubble();
+        let is_enabled = context_menus.read().is_enabled(context_menu_id);
+
+        let menu = get_element::<HtmlElement>(context_menu_id).unwrap();
+        let menu_style = menu.style();
+
+        if is_enabled {
+            (*context_menus.write()).disable(&context_menu_id);
+            return;
+        }
+
+        let control = get_element::<HtmlElement>(&control_id).unwrap();
+        let control_rect = control.get_bounding_client_rect();
+
+        menu.set_class_name(&menu.class_name().replace("hidden", "visible"));
+        // We need to make it visible so we can calculate its dimensions, but
+        // we don't want it to be on screen yet.
+        menu_style.set_property("left", "-10000px").unwrap();
+
+        let menu_rect = menu.get_bounding_client_rect();
+        // This is distance in pixels from the edge of the control element to
+        // the middle of dots icon.
+        let width_to_dots = control_rect.width() / 2.0;
+        let transform = format!(
+            "translateX({}px) translateY({}px)",
+            // If the menu is wider than the distance to the dots, this moves
+            // it left so the menu's right edge appears above the dots. If
+            // it's thinner than the distance to the dots it moves it right.
+            width_to_dots - menu_rect.width(),
+            -1.0 * (menu_rect.height() + 3.0),
+        );
+        menu_style.set_property("transform", &transform).unwrap();
+        menu_style.remove_property("left").unwrap();
+
+        (*context_menus.write()).enable(context_menu_id);
     })
 }

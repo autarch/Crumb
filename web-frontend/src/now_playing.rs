@@ -1,7 +1,7 @@
 use crate::{
-    grpc::crumb::QueueItem,
     components::{AlbumCover, Color, ContextMenu, UnderlineLink},
     css,
+    grpc::crumb::QueueItem,
     models::Queue,
     prelude::*,
     storage,

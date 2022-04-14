@@ -90,6 +90,11 @@ pub(crate) fn MenuItems(cx: Scope) -> Element {
                     title: "All tracks",
                 },
                 MenuItem {
+                    text: "Playlists",
+                    href: "/playlists",
+                    title: "Your playlists",
+                },
+                MenuItem {
                     text: "Queue",
                     href: "/queue",
                     title: "Current queue",

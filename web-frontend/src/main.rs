@@ -172,6 +172,10 @@ fn CrumbRoutes<'a>(
             Tracks { },
         },
         Route {
+            to: "/playlists",
+            Playlists { },
+        },
+        Route {
             to: "/queue",
             queue::Queue {
                 queue: queue,
@@ -191,6 +195,12 @@ fn Home<'a>(cx: Scope) -> Element {
 fn Releases<'a>(cx: Scope) -> Element {
     cx.render(rsx! {
         h1 { "Releases" },
+    })
+}
+
+fn Playlists<'a>(cx: Scope) -> Element {
+    cx.render(rsx! {
+        h1 { "Playlists" },
     })
 }
 

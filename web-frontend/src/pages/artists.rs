@@ -61,7 +61,7 @@ fn OneArtist<'a>(cx: Scope, artist: &'a ArtistListItem) -> Element {
                 Link {
                     to: "{artist_url}",
                     AlbumCover {
-                        uri: artist.release_cover_uri.as_deref().unwrap(),
+                        uri: artist.release_cover_uri.as_deref(),
                         lazy: true,
                     },
                 },

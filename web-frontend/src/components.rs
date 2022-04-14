@@ -61,7 +61,7 @@ pub(crate) fn UnderlineLink<'a>(cx: Scope<'a, UnderlineLinkProps<'a>>) -> Elemen
 pub struct AlbumCoverProps<'a> {
     #[props(default, strip_option)]
     class: Option<String>,
-    #[props(default)]
+    #[props(!optional)]
     uri: Option<&'a str>,
     #[props(default = 200)]
     size: u16,

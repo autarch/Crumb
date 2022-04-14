@@ -148,7 +148,7 @@ fn CurrentTrack<'a>(cx: Scope, queue: &'a Queue) -> Element {
             rsx! {
                 div {
                     AlbumCover {
-                        uri: item.release_cover_uri.as_deref().unwrap(),
+                        uri: item.release_cover_uri.as_deref(),
                         size: 50,
                     },
                 },

@@ -100,7 +100,7 @@ fn OneRelease<'a>(cx: Scope, release: &'a ReleaseListItem) -> Element {
                 Link {
                     to: "{release_url}",
                     AlbumCover {
-                        uri: release.release_cover_uri.as_deref().unwrap(),
+                        uri: release.release_cover_uri.as_deref(),
                     },
                 },
             },

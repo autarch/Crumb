@@ -163,7 +163,7 @@ fn LoadedRelease<'a>(
                 class: DC![C.lay.flex, C.fg.flex_row],
                 div {
                     AlbumCover {
-                        uri: core.release_cover_uri.as_deref().unwrap(),
+                        uri: core.release_cover_uri.as_deref(),
                         size: 250,
                     },
                 },

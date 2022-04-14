@@ -87,7 +87,7 @@ fn LoadedQueue<'a>(
         Some(items) => rsx! {
             AlbumCover {
                 class: C![C.lay.fixed, C.siz.w_1_of_2, C.spc.pr_8],
-                uri: items[0].release_cover_uri.as_deref().unwrap(),
+                uri: items[0].release_cover_uri.as_deref(),
                 round: false,
                 border: false,
             },
@@ -154,7 +154,7 @@ fn OneQueueItem<'a>(
         Tr {
             Td {
                 AlbumCover {
-                    uri: item.release_cover_uri.as_deref().unwrap(),
+                    uri: item.release_cover_uri.as_deref(),
                     size: 30,
                     border: false,
                 },

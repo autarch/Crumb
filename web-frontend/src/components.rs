@@ -1,5 +1,5 @@
 use crate::{prelude::*, util::get_element, ContextMenus};
-use dioxus::{core::Listener, events::MouseEvent, router::Link};
+use dioxus::{events::MouseEvent, router::Link};
 use web_sys::HtmlElement;
 
 #[inline_props]
@@ -220,7 +220,7 @@ pub(crate) fn ContextMenu<'a>(cx: Scope<'a, ContextMenuAttributes<'a>>) -> Eleme
                 panic!("Need exactly two nodes!");
             }
             match (&f.children[0], &f.children[1]) {
-                (VNode::Element(c), VNode::Element(r)) => (*c, *r),
+                (VNode::Element(c), VNode::Element(r)) => (VNode::Element(c), VNode::Element(r)),
                 _ => panic!("The children nodes need to be elements: {:#?}", f.children),
             }
         }
@@ -228,81 +228,28 @@ pub(crate) fn ContextMenu<'a>(cx: Scope<'a, ContextMenuAttributes<'a>>) -> Eleme
     };
 
     let control_id = format!("{}-context-menu-control", context_menu_id);
-
-    let factory = NodeFactory::new(&cx.scope);
-    let control_onclick =
-        context_menu_onclick_listener(factory, context_menus, context_menu_id, control_id.clone());
-
-    let new_control_attrs = control_elt
-        .attributes
-        .iter()
-        .map(|a| a.clone())
-        .chain([factory.attr("id", format_args!("{}", control_id), None, false)])
-        .collect::<Vec<_>>();
-    let new_control_listeners = control_elt
-        .listeners
-        .iter()
-        .map(|l| factory.listener(l.event, l.callback))
-        .chain([control_onclick])
-        .collect::<Vec<_>>();
-    let new_control_elt = factory.raw_element(
-        control_elt.tag,
-        control_elt.namespace,
-        factory.bump().alloc(new_control_listeners),
-        factory.bump().alloc(new_control_attrs),
-        control_elt.children,
-        // It's not possible to create this in its own statement _nor_ can we
-        // match the original key and Some(format_args!(...)) or None. The
-        // value that `format_args!` produces is a temporary reference that
-        // cannot be stored locally. It'd be nice if raw_element was able to
-        // just take some text instead of an Option<Arguments>.
-        Some(format_args!(
-            "{}",
-            match control_elt.key {
-                Some(k) => k.clone(),
-                None => "",
-            }
-        )),
-    );
-
-    let new_rest_attrs = menu_elt
-        .attributes
-        .iter()
-        .map(|a| a.clone())
-        .chain([factory.attr("id", format_args!("{}", context_menu_id), None, false)])
-        .collect::<Vec<_>>();
-    let new_rest_elt = factory.raw_element(
-        menu_elt.tag,
-        menu_elt.namespace,
-        menu_elt.listeners,
-        factory.bump().alloc(new_rest_attrs),
-        menu_elt.children,
-        Some(format_args!(
-            "{}",
-            match menu_elt.key {
-                Some(k) => k.clone(),
-                None => "",
-            }
-        )),
-    );
+    let control_onclick = context_menu_onclick(context_menus, context_menu_id, control_id.clone());
 
     cx.render(rsx! {
         div {
             id: "{context_menu_id}",
             class: DC![context_menu_classes],
-            [new_rest_elt],
+            [menu_elt],
         },
-        [new_control_elt],
+        div {
+            id: "{control_id}",
+            onclick: control_onclick,
+            control_elt,
+        },
     })
 }
 
-fn context_menu_onclick_listener<'bump>(
-    factory: NodeFactory<'bump>,
-    context_menus: UseSharedState<'bump, ContextMenus>,
-    context_menu_id: &'bump str,
+fn context_menu_onclick<'a>(
+    context_menus: UseSharedState<'a, ContextMenus>,
+    context_menu_id: &'a str,
     control_id: String,
-) -> Listener<'bump> {
-    dioxus_elements::on::onclick(factory, move |e: MouseEvent| {
+) -> impl Fn(MouseEvent) + 'a {
+    move |e: MouseEvent| {
         // If we don't cancel this then the page's onclick handler sees the
         // click as well and disables all context menus.
         e.cancel_bubble();
@@ -340,5 +287,5 @@ fn context_menu_onclick_listener<'bump>(
         menu_style.remove_property("left").unwrap();
 
         (*context_menus.write()).enable(context_menu_id);
-    })
+    }
 }

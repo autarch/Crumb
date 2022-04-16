@@ -8,7 +8,7 @@ use crate::{
 };
 use dioxus::router::Link;
 
-pub(crate) fn Artists<'a>(cx: Scope) -> Element {
+pub(crate) fn Artists(cx: Scope) -> Element {
     let artists = use_future(&cx, (), |_| {
         let mut client = new_client(
             cx.consume_context::<storage::Store>()

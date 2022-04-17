@@ -1,4 +1,5 @@
 use crate::{
+    client,
     components::AlbumCover,
     grpc::crumb::ArtistListItem,
     page_div_classes,
@@ -9,39 +10,75 @@ use crate::{
 use dioxus::router::Link;
 
 pub(crate) fn Artists(cx: Scope) -> Element {
-    let artists = use_future(&cx, (), |_| {
+    let artists: &UseState<Option<Result<Vec<ArtistListItem>, client::Error>>> =
+        use_state(&cx, || None);
+
+    cx.use_hook(|_| {
         let mut client = new_client(
             cx.consume_context::<storage::Store>()
                 .expect("Could not get Store from context"),
         );
-        async move { client.get_artists().await }
-    });
-    cx.render(rsx! {
-        match artists.value() {
-            Some(Ok(artists)) => rsx! {
-                div {
-                    class: format_args!("{}", page_div_classes()),
-                    artists.iter().map(|a| rsx!{
-                        OneArtist {
-                            key: "{a.artist_id}",
-                            artist: a,
+        cx.spawn({
+            to_owned![artists];
+            async move {
+                let mut stream = match client.get_artists().await {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        log::error!("Error getting artists: {e}");
+                        artists.set(Some(Err(e)));
+                        return;
+                    }
+                };
+
+                loop {
+                    match stream.message().await {
+                        Ok(Some(artist)) => artists.modify(|current| match current {
+                            Some(Ok(current)) => {
+                                let mut new = current.clone();
+                                new.push(artist);
+                                Some(Ok(new))
+                            }
+                            Some(Err(_)) => unreachable!(
+                                "We should not get more stream messages after the first error"
+                            ),
+                            None => Some(Ok(vec![artist])),
+                        }),
+                        Ok(None) => break,
+                        Err(e) => {
+                            log::error!("Error reading from artists stream: {e}");
+                            artists.set(Some(Err(e.into())));
+                            break;
                         }
-                    }),
-                },
-            },
-            Some(Err(e)) => {
-                log::error!("Error loading artists: {}", e);
-                rsx! {
-                    "Error loading artists"
+                    }
                 }
+            }
+        })
+    });
+
+    let content = match artists.get() {
+        Some(Ok(artists)) => rsx! {
+            div {
+                class: format_args!("{}", page_div_classes()),
+                artists.iter().map(|a| rsx!{
+                    OneArtist {
+                        key: "{a.artist_id}",
+                        artist: a,
+                    }
+                }),
             },
-            None => {
-                rsx! {
-                    "Loading artists",
-                }
-            },
+        },
+        Some(Err(_)) => {
+            rsx! {
+                "Error loading artists"
+            }
         }
-    })
+        None => {
+            rsx! {
+                "Loading artists",
+            }
+        }
+    };
+    cx.render(rsx! { content })
 }
 
 #[inline_props]

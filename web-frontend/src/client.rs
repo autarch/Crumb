@@ -30,18 +30,13 @@ impl Client<grpc_web_client::Client> {
         }
     }
 
-    pub(crate) async fn get_artists(&mut self) -> Result<Vec<ArtistListItem>, Error> {
-        let mut stream = self
+    pub(crate) async fn get_artists(&mut self) -> Result<Streaming<ArtistListItem>, Error> {
+        Ok(self
             .grpc_client
             .get_artists(tonic::Request::new(GetArtistsRequest {}))
             .await
             .map_err(Error::from)?
-            .into_inner();
-        let mut artists: Vec<ArtistListItem> = vec![];
-        while let Some(a) = stream.message().await? {
-            artists.push(a);
-        }
-        Ok(artists)
+            .into_inner())
     }
 
     pub(crate) async fn get_artist(&mut self, artist_id: &str) -> Result<GetArtistResponse, Error> {

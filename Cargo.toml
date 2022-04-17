@@ -3,7 +3,6 @@ members = [
     "acoustid",
     "backend",
     "db",
-    "frontend",
     "importer",
     "web-frontend",
 ]

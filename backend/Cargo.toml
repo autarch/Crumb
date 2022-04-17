@@ -15,7 +15,8 @@ futures = { version = "0.3.21", default-features = false, features = ["alloc"] }
 prost = "0.10.1"
 prost-types = "0.10.1"
 rust_decimal = "1.21.0"
-tokio = { version = "1.17.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.17.0", features = ["macros", "rt-multi-thread", "sync"] }
+tokio-stream = "0.1.8"
 tonic = { version = "0.7.1", features = [ "compression", "prost", "tls" ] }
 tonic-web = "0.3.0"
 tracing = "0.1.33"

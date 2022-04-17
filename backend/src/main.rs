@@ -1,12 +1,16 @@
 use crate::crumb_server::{Crumb, CrumbServer};
 use anyhow::Result;
 use crumb_db::{DBError, SQLXError, User, DB};
-use futures::{stream, Stream};
+use futures::{
+    stream::{self, BoxStream},
+    Stream, StreamExt, TryStreamExt,
+};
 use rust_decimal::Decimal;
 use std::{env, pin::Pin, str::FromStr};
+use tokio::sync::mpsc::{self, error::SendError, Sender};
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status as TonicStatus};
 use tracing::{event, Level};
-use tracing_subscriber;
 use uuid::Uuid;
 
 mod grpc {
@@ -17,8 +21,6 @@ mod grpc {
 use grpc::crumb::*;
 
 type GetArtistsResult<T> = Result<Response<T>, TonicStatus>;
-type GetArtistsResponseStream =
-    Pin<Box<dyn Stream<Item = Result<ArtistListItem, TonicStatus>> + Send>>;
 
 type GetArtistResult = Result<Response<GetArtistResponse>, TonicStatus>;
 
@@ -33,44 +35,38 @@ type GetTracksForReleaseResponseStream =
     Pin<Box<dyn Stream<Item = Result<ReleaseTrack, TonicStatus>> + Send>>;
 
 type GetQueueResult<T> = Result<Response<T>, TonicStatus>;
-type GetQueueResponseStream = Pin<Box<dyn Stream<Item = Result<QueueItem, TonicStatus>> + Send>>;
 
 type AddToQueueResult<T> = Result<Response<T>, TonicStatus>;
-type AddToQueueResponseStream = GetQueueResponseStream;
 
 type ReplaceQueueResult<T> = Result<Response<T>, TonicStatus>;
-type ReplaceQueueResponseStream = GetQueueResponseStream;
 
 type RemoveFromQueueResult<T> = Result<Response<T>, TonicStatus>;
-type RemoveFromQueueResponseStream = GetQueueResponseStream;
 
 type MoveQueueForwardResult<T> = Result<Response<T>, TonicStatus>;
-type MoveQueueForwardResponseStream = GetQueueResponseStream;
 
 type MoveQueueBackwardResult<T> = Result<Response<T>, TonicStatus>;
-type MoveQueueBackwardResponseStream = GetQueueResponseStream;
 
 type LikeTrackResult = Result<Response<LikeOrDislikeTrackResponse>, TonicStatus>;
 type DislikeTrackResult = Result<Response<LikeOrDislikeTrackResponse>, TonicStatus>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct MyCrumb {
     db: DB,
 }
 
 #[tonic::async_trait]
 impl Crumb for MyCrumb {
-    type GetArtistsStream = GetArtistsResponseStream;
+    type GetArtistsStream = ReceiverStream<Result<ArtistListItem, TonicStatus>>;
     type GetReleasesForArtistStream = GetReleasesForArtistResponseStream;
     type GetTracksForReleaseStream = GetTracksForReleaseResponseStream;
-    type GetQueueStream = GetQueueResponseStream;
+    type GetQueueStream = ReceiverStream<Result<QueueItem, TonicStatus>>;
 
-    type AddToQueueStream = AddToQueueResponseStream;
-    type ReplaceQueueStream = ReplaceQueueResponseStream;
-    type RemoveFromQueueStream = RemoveFromQueueResponseStream;
+    type AddToQueueStream = ReceiverStream<Result<QueueItem, TonicStatus>>;
+    type ReplaceQueueStream = ReceiverStream<Result<QueueItem, TonicStatus>>;
+    type RemoveFromQueueStream = ReceiverStream<Result<QueueItem, TonicStatus>>;
 
-    type MoveQueueForwardStream = MoveQueueForwardResponseStream;
-    type MoveQueueBackwardStream = MoveQueueBackwardResponseStream;
+    type MoveQueueForwardStream = ReceiverStream<Result<QueueItem, TonicStatus>>;
+    type MoveQueueBackwardStream = ReceiverStream<Result<QueueItem, TonicStatus>>;
 
     #[tracing::instrument(skip(self))]
     async fn get_artists(
@@ -78,26 +74,41 @@ impl Crumb for MyCrumb {
         _: Request<GetArtistsRequest>,
     ) -> GetArtistsResult<Self::GetArtistsStream> {
         let user = self.get_user().await?;
-        // XXX - getting a vec from the db using fetch_many the crumb_db
-        // package instead of just returning a stream is gross, but attempting
-        // to return the stream gave me all sorts of lifetime errors.
-        let artists = self
-            .db
-            .artists_for_user(&user)
-            .await
-            .map_err(|e| {
-                event!(
-                    Level::ERROR,
-                    user_id = %user.user_id.to_string(),
-                    error = %e,
-                    "error getting artists for user",
-                );
-                TonicStatus::internal("Server error")
-            })?
-            .into_iter()
-            .map(|a| Ok(to_rpc_artist_list_item_struct(a)))
-            .collect::<Vec<_>>();
-        Ok(Response::new(Box::pin(stream::iter(artists))))
+
+        let (tx, rx) = mpsc::channel(10);
+        let self = self.clone();
+        tokio::spawn(async move {
+            let mut select = String::new();
+            let mut artists = self
+                .db
+                .artists_for_user(&user, &mut select)
+                .map(|a| match a {
+                    Ok(a) => Ok(to_rpc_artist_list_item_struct(a)),
+                    Err(e) => {
+                        event!(
+                            Level::ERROR,
+                            user_id = %user.user_id.to_string(),
+                            error = %e,
+                            "error in get_artists",
+                        );
+                        Err(TonicStatus::internal("Server error"))
+                    }
+                });
+            loop {
+                let item = match artists.try_next().await {
+                    Ok(Some(artist)) => Ok(artist),
+                    Ok(None) => break,
+                    Err(e) => Err(e),
+                };
+                let is_err = item.is_err();
+                handle_send_error("get_artists", tx.send(item).await);
+                if is_err {
+                    break;
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     #[tracing::instrument(skip(self))]
@@ -278,23 +289,23 @@ impl Crumb for MyCrumb {
         let user = self.get_user().await?;
         let inner = req.into_inner();
         let client_id = parse_client_id(&inner.client_id)?;
-        let queue_items = self
-            .db
-            .queue_for_user(&user, &client_id)
-            .await
-            .map_err(|e| {
-                event!(
-                    Level::ERROR,
-                    user_id = %user.user_id.to_string(),
-                    error = %e,
-                    "error getting queue",
-                );
-                TonicStatus::internal("Server error")
-            })?
-            .into_iter()
-            .map(|q| Ok(to_rpc_queue_item_struct(q)))
-            .collect::<Vec<_>>();
-        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+
+        let (tx, rx) = mpsc::channel(10);
+        let self = self.clone();
+        tokio::spawn(async move {
+            let mut select = String::new();
+            let items = self.db.queue_for_user(&user, &client_id, &mut select);
+            send_queue_item_stream(
+                "get_queue",
+                items,
+                tx,
+                user.user_id.to_string().as_str(),
+                client_id.to_string().as_str(),
+            )
+            .await;
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     #[tracing::instrument(skip(self))]
@@ -318,23 +329,26 @@ impl Crumb for MyCrumb {
                 );
                 TonicStatus::internal("Server error")
             })?;
-        let queue_items = self
-            .db
-            .add_to_queue_for_user(&user, &client_id, &track_ids)
-            .await
-            .map_err(|e| {
-                event!(
-                    Level::ERROR,
-                    user_id = %user.user_id.to_string(),
-                    error = %e,
-                    "error getting queue after adding tracks to it",
-                );
-                TonicStatus::internal("Server error")
-            })?
-            .into_iter()
-            .map(|q| Ok(to_rpc_queue_item_struct(q)))
-            .collect::<Vec<_>>();
-        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+
+        let (tx, rx) = mpsc::channel(10);
+        let self = self.clone();
+        tokio::spawn(async move {
+            let mut select = String::new();
+            let items = self
+                .db
+                .add_to_queue_for_user(&user, &client_id, &track_ids, &mut select)
+                .await;
+            send_queue_item_stream(
+                "add_to_queue",
+                items,
+                tx,
+                user.user_id.to_string().as_str(),
+                client_id.to_string().as_str(),
+            )
+            .await;
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     #[tracing::instrument(skip(self))]
@@ -358,23 +372,26 @@ impl Crumb for MyCrumb {
                 );
                 TonicStatus::internal("Server error")
             })?;
-        let queue_items = self
-            .db
-            .replace_queue_for_user(&user, &client_id, &track_ids)
-            .await
-            .map_err(|e| {
-                event!(
-                    Level::ERROR,
-                    user_id = %user.user_id.to_string(),
-                    error = %e,
-                    "error getting queue after replacing it",
-                );
-                TonicStatus::internal("Server error")
-            })?
-            .into_iter()
-            .map(|q| Ok(to_rpc_queue_item_struct(q)))
-            .collect::<Vec<_>>();
-        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+
+        let (tx, rx) = mpsc::channel(10);
+        let self = self.clone();
+        tokio::spawn(async move {
+            let mut select = String::new();
+            let items = self
+                .db
+                .replace_queue_for_user(&user, &client_id, &track_ids, &mut select)
+                .await;
+            send_queue_item_stream(
+                "replace_queue_for_user",
+                items,
+                tx,
+                user.user_id.to_string().as_str(),
+                client_id.to_string().as_str(),
+            )
+            .await;
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     #[tracing::instrument(skip(self))]
@@ -398,23 +415,26 @@ impl Crumb for MyCrumb {
                 );
                 TonicStatus::internal("Server error")
             })?;
-        let queue_items = self
-            .db
-            .remove_from_queue_for_user(&user, &client_id, &positions)
-            .await
-            .map_err(|e| {
-                event!(
-                    Level::ERROR,
-                    user_id = %user.user_id.to_string(),
-                    error = %e,
-                    "error getting queue after removing tracks from it",
-                );
-                TonicStatus::internal("Server error")
-            })?
-            .into_iter()
-            .map(|q| Ok(to_rpc_queue_item_struct(q)))
-            .collect::<Vec<_>>();
-        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+
+        let (tx, rx) = mpsc::channel(10);
+        let self = self.clone();
+        tokio::spawn(async move {
+            let mut select = String::new();
+            let items = self
+                .db
+                .remove_from_queue_for_user(&user, &client_id, &positions, &mut select)
+                .await;
+            send_queue_item_stream(
+                "remove_from_queue",
+                items,
+                tx,
+                user.user_id.to_string().as_str(),
+                client_id.to_string().as_str(),
+            )
+            .await;
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     #[tracing::instrument(skip(self))]
@@ -425,23 +445,26 @@ impl Crumb for MyCrumb {
         let user = self.get_user().await?;
         let inner = req.into_inner();
         let client_id = parse_client_id(&inner.client_id)?;
-        let queue_items = self
-            .db
-            .move_queue_forward_for_user(&user, &client_id)
-            .await
-            .map_err(|e| {
-                event!(
-                    Level::ERROR,
-                    user_id = %user.user_id.to_string(),
-                    error = %e,
-                    "error getting queue after moving it forward",
-                );
-                TonicStatus::internal("Server error")
-            })?
-            .into_iter()
-            .map(|q| Ok(to_rpc_queue_item_struct(q)))
-            .collect::<Vec<_>>();
-        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+
+        let (tx, rx) = mpsc::channel(10);
+        let self = self.clone();
+        tokio::spawn(async move {
+            let mut select = String::new();
+            let items = self
+                .db
+                .move_queue_forward_for_user(&user, &client_id, &mut select)
+                .await;
+            send_queue_item_stream(
+                "move_queue_forward",
+                items,
+                tx,
+                user.user_id.to_string().as_str(),
+                client_id.to_string().as_str(),
+            )
+            .await;
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     #[tracing::instrument(skip(self))]
@@ -452,23 +475,26 @@ impl Crumb for MyCrumb {
         let user = self.get_user().await?;
         let inner = req.into_inner();
         let client_id = parse_client_id(&inner.client_id)?;
-        let queue_items = self
-            .db
-            .move_queue_backward_for_user(&user, &client_id)
-            .await
-            .map_err(|e| {
-                event!(
-                    Level::ERROR,
-                    user_id = %user.user_id.to_string(),
-                    error = %e,
-                    "error getting queue after moving it backward",
-                );
-                TonicStatus::internal("Server error")
-            })?
-            .into_iter()
-            .map(|q| Ok(to_rpc_queue_item_struct(q)))
-            .collect::<Vec<_>>();
-        Ok(Response::new(Box::pin(stream::iter(queue_items))))
+
+        let (tx, rx) = mpsc::channel(10);
+        let self = self.clone();
+        tokio::spawn(async move {
+            let mut select = String::new();
+            let items = self
+                .db
+                .move_queue_backward_for_user(&user, &client_id, &mut select)
+                .await;
+            send_queue_item_stream(
+                "move_queue_backward",
+                items,
+                tx,
+                user.user_id.to_string().as_str(),
+                client_id.to_string().as_str(),
+            )
+            .await;
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     #[tracing::instrument(skip(self))]
@@ -556,6 +582,46 @@ impl MyCrumb {
                 return Err(TonicStatus::internal("Server error"));
             }
         }
+    }
+}
+
+async fn send_queue_item_stream<'a>(
+    what: &'static str,
+    mut items: BoxStream<'a, Result<crumb_db::QueueItem, DBError>>,
+    tx: Sender<Result<QueueItem, TonicStatus>>,
+    user_id: &'a str,
+    client_id: &'a str,
+) {
+    loop {
+        let item = match items.try_next().await {
+            Ok(Some(item)) => Ok(to_rpc_queue_item_struct(item)),
+            Ok(None) => break,
+            Err(e) => {
+                event!(
+                    Level::ERROR,
+                    user_id = user_id,
+                    client_id = client_id,
+                    error = %e,
+                    "error in {}", what,
+                );
+                Err(TonicStatus::internal("Server error"))
+            }
+        };
+        let is_err = item.is_err();
+        handle_send_error("get_queue", tx.send(item).await);
+        if is_err {
+            break;
+        }
+    }
+}
+
+fn handle_send_error<T>(what: &str, res: Result<(), SendError<T>>) {
+    if let Err(e) = res {
+        event!(
+            Level::ERROR,
+            error = %e,
+            "error sending {} message to channel", what,
+        );
     }
 }
 

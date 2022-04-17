@@ -3,6 +3,7 @@ mod names;
 
 pub use crate::dbtypes::*;
 use crate::names::*;
+use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use log::debug;
 use rust_decimal::Decimal;
@@ -13,6 +14,7 @@ use sqlx::{
 };
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
+use tokio_stream::once;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
@@ -785,8 +787,16 @@ impl DB {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn artists_for_user(&self, user: &User) -> DBResult<Vec<ArtistListItem>> {
-        let select = format!(
+    pub fn artists_for_user<'a>(
+        &'a self,
+        user: &'a User,
+        // This is a gross workaround for issues described in
+        // https://github.com/launchbadge/sqlx/issues/1594 - if the select
+        // String is created in this function and passed into query_as() then
+        // it doesn't live long enough to return a stream.
+        select: &'a mut String,
+    ) -> BoxStream<'a, DBResult<ArtistListItem>> {
+        *select = format!(
             r#"
                 SELECT a.artist_id,
                        COALESCE({display_order:}) AS display_name,
@@ -811,11 +821,11 @@ impl DB {
             display_order = user.display_order("a", SortableThing::Artist),
             sort_order = user.sort_order("a", SortableThing::Artist),
         );
-        sqlx::query_as::<_, ArtistListItem>(&select)
+        sqlx::query_as::<_, ArtistListItem>(select)
             .bind(&user.user_id)
-            .fetch_all(&self.pool)
-            .await
+            .fetch(&self.pool)
             .map_err(|e| e.into())
+            .boxed()
     }
 
     #[tracing::instrument(skip(self))]
@@ -981,9 +991,14 @@ impl DB {
             .map_err(|e| e.into())
     }
 
-    //    #[tracing::instrument(skip(self))]
-    pub async fn queue_for_user(&self, user: &User, client_id: &Uuid) -> DBResult<Vec<QueueItem>> {
-        let select = format!(
+    #[tracing::instrument(skip(self))]
+    pub fn queue_for_user<'a>(
+        &'a self,
+        user: &'a User,
+        client_id: &'a Uuid,
+        select: &'a mut String,
+    ) -> BoxStream<'a, DBResult<QueueItem>> {
+        *select = format!(
             r#"
                 SELECT t.track_id,
                        t.primary_artist_id,
@@ -1020,86 +1035,106 @@ impl DB {
         // can't use have the query return `ROW( ... ), uq.position` and then
         // query_as::<(ReleaseTrack, ReleaseListItem, i32)>. Nor can I make a tuple struct and
         // use that with that query.
-        Ok(sqlx::query(&select)
+        sqlx::query(select)
             .bind(&user.user_id)
             .bind(client_id)
-            .fetch_all(&self.pool)
-            .await?
-            .iter()
-            .map(|qi| QueueItem {
-                release_track: ReleaseTrack {
-                    track_id: qi.get("track_id"),
-                    primary_artist_id: qi.get("primary_artist_id"),
-                    display_title: qi.get("display_title"),
-                    title: qi.get("title"),
-                    transcripted_title: qi.get("transcripted_title"),
-                    translated_title: qi.get("translated_title"),
-                    length: qi.get("length"),
-                    content_hash: qi.get("content_hash"),
+            .fetch(&self.pool)
+            .map(|i| match i {
+                Ok(qi) => Ok(QueueItem {
+                    release_track: ReleaseTrack {
+                        track_id: qi.get("track_id"),
+                        primary_artist_id: qi.get("primary_artist_id"),
+                        display_title: qi.get("display_title"),
+                        title: qi.get("title"),
+                        transcripted_title: qi.get("transcripted_title"),
+                        translated_title: qi.get("translated_title"),
+                        length: qi.get("length"),
+                        content_hash: qi.get("content_hash"),
+                        release_id: qi.get("release_id"),
+                        position: qi.get("position"),
+                    },
                     release_id: qi.get("release_id"),
-                    position: qi.get("position"),
-                },
-                release_id: qi.get("release_id"),
-                release_display_title: qi.get("release_display_title"),
-                release_cover_uri: qi.get("release_cover_uri"),
-                artist_id: qi.get("artist_id"),
-                artist_display_name: qi.get("artist_display_name"),
-                queue_position: qi.get("queue_position"),
-                is_current: qi.get("is_current"),
+                    release_display_title: qi.get("release_display_title"),
+                    release_cover_uri: qi.get("release_cover_uri"),
+                    artist_id: qi.get("artist_id"),
+                    artist_display_name: qi.get("artist_display_name"),
+                    queue_position: qi.get("queue_position"),
+                    is_current: qi.get("is_current"),
+                }),
+                Err(e) => Err(e.into()),
             })
-            .collect::<Vec<_>>())
+            .boxed()
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn add_to_queue_for_user(
-        &self,
-        user: &User,
-        client_id: &Uuid,
-        track_ids: &[Uuid],
-    ) -> DBResult<Vec<QueueItem>> {
-        if track_ids.is_empty() {
-            return Ok(vec![]);
+    pub async fn add_to_queue_for_user<'a>(
+        &'a self,
+        user: &'a User,
+        client_id: &'a Uuid,
+        track_ids: &'a [Uuid],
+        select: &'a mut String,
+    ) -> BoxStream<'a, DBResult<QueueItem>> {
+        if !track_ids.is_empty() {
+            let mut tx = match self.pool.begin().await {
+                Ok(tx) => tx,
+                Err(e) => return once(Err(e.into())).boxed(),
+            };
+            if let Err(e) = self
+                .add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
+                .await
+            {
+                return once(Err(e.into())).boxed();
+            }
+            if let Err(e) = tx.commit().await {
+                return once(Err(e.into())).boxed();
+            }
         }
 
-        let mut tx = self.pool.begin().await?;
-        self.add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
-            .await?;
-        tx.commit().await?;
-
-        Ok(self.queue_for_user(user, client_id).await?)
+        self.queue_for_user(user, client_id, select)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn replace_queue_for_user(
-        &self,
-        user: &User,
-        client_id: &Uuid,
-        track_ids: &[Uuid],
-    ) -> DBResult<Vec<QueueItem>> {
-        if track_ids.is_empty() {
-            return Ok(vec![]);
-        }
+    pub async fn replace_queue_for_user<'a>(
+        &'a self,
+        user: &'a User,
+        client_id: &'a Uuid,
+        track_ids: &'a [Uuid],
+        select: &'a mut String,
+    ) -> BoxStream<'a, DBResult<QueueItem>> {
+        if !track_ids.is_empty() {
+            let mut tx = match self.pool.begin().await {
+                Ok(tx) => tx,
+                Err(e) => return once(Err(e.into())).boxed(),
+            };
 
-        let mut tx = self.pool.begin().await?;
-
-        let delete = r#"
+            let delete = r#"
             DELETE
               FROM crumb.user_queue
              WHERE user_id = $1
                AND client_id = $2
         "#;
-        sqlx::query(delete)
-            .bind(&user.user_id)
-            .bind(&client_id)
-            .execute(&mut tx)
-            .await?;
+            if let Err(e) = sqlx::query(delete)
+                .bind(&user.user_id)
+                .bind(&client_id)
+                .execute(&mut tx)
+                .await
+            {
+                return once(Err(e.into())).boxed();
+            }
 
-        self.add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
-            .await?;
+            if let Err(e) = self
+                .add_to_queue_for_user_in_tx(&mut tx, user, client_id, track_ids)
+                .await
+            {
+                return once(Err(e.into())).boxed();
+            }
 
-        tx.commit().await?;
+            if let Err(e) = tx.commit().await {
+                return once(Err(e.into())).boxed();
+            }
+        }
 
-        Ok(self.queue_for_user(user, client_id).await?)
+        self.queue_for_user(user, client_id, select)
     }
 
     #[tracing::instrument(skip(self))]
@@ -1195,62 +1230,77 @@ impl DB {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn remove_from_queue_for_user(
-        &self,
-        user: &User,
-        client_id: &Uuid,
-        positions: &[Decimal],
-    ) -> DBResult<Vec<QueueItem>> {
-        if positions.is_empty() {
-            return Ok(vec![]);
+    pub async fn remove_from_queue_for_user<'a>(
+        &'a self,
+        user: &'a User,
+        client_id: &'a Uuid,
+        positions: &'a [Decimal],
+        select: &'a mut String,
+    ) -> BoxStream<'a, DBResult<QueueItem>> {
+        if !positions.is_empty() {
+            let mut tx = match self.pool.begin().await {
+                Ok(tx) => tx,
+                Err(e) => return once(Err(e.into())).boxed(),
+            };
+            let delete = r#"
+                DELETE
+                  FROM crumb.user_queue
+                 WHERE user_id = $1
+                   AND client_id = $2
+                   AND position = ANY($3)
+            "#;
+
+            if let Err(e) = sqlx::query(&delete)
+                .bind(&user.user_id)
+                .bind(client_id)
+                .bind(positions)
+                .execute(&mut tx)
+                .await
+            {
+                return once(Err(e.into())).boxed();
+            }
+
+            // If we just deleted the current track we need to set a new current
+            // track.
+            let update = r#"
+            UPDATE crumb.user_queue
+                   SET is_current = TRUE
+                 WHERE position = COALESCE(
+                           ( SELECT position
+                               FROM crumb.user_queue
+                              WHERE user_id = $1
+                                AND client_id = $2
+                                AND is_current ),
+                           ( SELECT MIN(position)
+                               FROM crumb.user_queue
+                              WHERE user_id = $1
+                                AND client_id = $2 )
+                       )
+            "#;
+            if let Err(e) = sqlx::query(&update)
+                .bind(&user.user_id)
+                .bind(client_id)
+                .execute(&mut tx)
+                .await
+            {
+                return once(Err(e.into())).boxed();
+            }
+
+            if let Err(e) = tx.commit().await {
+                return once(Err(e.into())).boxed();
+            }
         }
 
-        let delete = r#"
-            DELETE
-              FROM crumb.user_queue
-             WHERE user_id = $1
-               AND client_id = $2
-               AND position = ANY($3)
-        "#;
-        sqlx::query(&delete)
-            .bind(&user.user_id)
-            .bind(client_id)
-            .bind(positions)
-            .execute(&self.pool)
-            .await?;
-
-        // If we just deleted the current track we need to set a new current
-        // track.
-        let update = r#"
-            UPDATE crumb.user_queue
-               SET is_current = TRUE
-             WHERE position = COALESCE(
-                       ( SELECT position
-                           FROM crumb.user_queue
-                          WHERE user_id = $1
-                            AND client_id = $2
-                            AND is_current ),
-                       ( SELECT MIN(position)
-                           FROM crumb.user_queue
-                          WHERE user_id = $1
-                            AND client_id = $2 )
-                   )
-        "#;
-        sqlx::query(&update)
-            .bind(&user.user_id)
-            .bind(client_id)
-            .execute(&self.pool)
-            .await?;
-
-        Ok(self.queue_for_user(user, client_id).await?)
+        self.queue_for_user(user, client_id, select)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn move_queue_forward_for_user(
-        &self,
-        user: &User,
-        client_id: &Uuid,
-    ) -> DBResult<Vec<QueueItem>> {
+    pub async fn move_queue_forward_for_user<'a>(
+        &'a self,
+        user: &'a User,
+        client_id: &'a Uuid,
+        select: &'a mut String,
+    ) -> BoxStream<'a, DBResult<QueueItem>> {
         let update = r#"
             WITH current AS (
                 SELECT position
@@ -1279,21 +1329,25 @@ impl DB {
                        LIMIT 1
                    )
         "#;
-        sqlx::query(&update)
+        if let Err(e) = sqlx::query(&update)
             .bind(&user.user_id)
             .bind(client_id)
             .execute(&self.pool)
-            .await?;
+            .await
+        {
+            return once(Err(e.into())).boxed();
+        }
 
-        Ok(self.queue_for_user(user, client_id).await?)
+        self.queue_for_user(user, client_id, select)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn move_queue_backward_for_user(
-        &self,
-        user: &User,
-        client_id: &Uuid,
-    ) -> DBResult<Vec<QueueItem>> {
+    pub async fn move_queue_backward_for_user<'a>(
+        &'a self,
+        user: &'a User,
+        client_id: &'a Uuid,
+        select: &'a mut String,
+    ) -> BoxStream<'a, DBResult<QueueItem>> {
         let update = r#"
             WITH current AS (
                 SELECT position
@@ -1322,13 +1376,16 @@ impl DB {
                        LIMIT 1
                    )
         "#;
-        sqlx::query(&update)
+        if let Err(e) = sqlx::query(&update)
             .bind(&user.user_id)
             .bind(client_id)
             .execute(&self.pool)
-            .await?;
+            .await
+        {
+            return once(Err(e.into())).boxed();
+        }
 
-        Ok(self.queue_for_user(user, client_id).await?)
+        self.queue_for_user(user, client_id, select)
     }
 
     #[tracing::instrument(skip(self))]

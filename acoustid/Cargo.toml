@@ -9,17 +9,17 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.56"
-log = "0.4.16"
-reqwest = { version = "0.11.10", features = ["gzip", "json", "rustls"] }
-serde = { version = "1.0.136", features = ["derive"] }
-serde_json = "1.0.79"
+anyhow = "1.0.58"
+log = "0.4.17"
+reqwest = { version = "0.11.11", features = ["gzip", "json", "rustls"] }
+serde = { version = "1.0.140", features = ["derive"] }
+serde_json = "1.0.82"
 sha256 = "1.0.3"
-thiserror = "1.0.30"
-tokio = { version = "1.17.0", default-features = false, features = ["rt-multi-thread"] }
-tower = { version = "0.4.12", features = [ "limit", "util" ] }
+thiserror = "1.0.31"
+tokio = { version = "1.20.0", default-features = false, features = ["rt-multi-thread"] }
+tower = { version = "0.4.13", features = [ "limit", "util" ] }
 url = "2.2.2"
 
 [dev-dependencies]
 mockito = "0.31.0"
-tokio = { version = "1.17.0", default-features = false, features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.20.0", default-features = false, features = ["macros", "rt-multi-thread"] }

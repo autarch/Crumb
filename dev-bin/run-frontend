@@ -1,17 +1,25 @@
-#!/bin/sh
+#!/bin/bash
+
+set -e
+
+# pushd ../trunk
+# cargo build
+# popd
 
 cd web-frontend
-trunk -v serve --release \
+##trunk -v serve --release \
+#../../trunk/target/debug/trunk -v serve --release \
     --watch .. \
+    --watch ../../dioxus-heroicons/ \
     --watch ../../dioxus/ \
     --watch ../../grpc-web-client/ \
-    --watch ../../dioxus-heroicons/ \
     --watch ../../tailwindcss-to-rust/ \
     --watch ../../wasm-logger/ \
-    --ignore ../target/ \
-    --ignore ../../dioxus/target \
     --ignore ../../dioxus-heroicons/target/ \
+    --ignore ../../dioxus/target \
     --ignore ../../tailwindcss-to-rust/target/ \
     --ignore ../../wasm-logger/target/ \
+    --ignore ../.log \
+    --ignore ../target/ \
     --ignore ./css/tailwind_compiled.css \
-    --ignore ../.log
+    --ignore ./src/grpc/crumb.v1.rs \
